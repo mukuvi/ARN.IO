@@ -133,20 +133,17 @@ export default function Profile() {
 
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
         <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden mb-6">
-          <div className="bg-gradient-to-r from-orange-500 to-orange-400 h-28 sm:h-36"></div>
-          <div className="px-6 pb-6 -mt-12 sm:-mt-16">
-            <div className="flex flex-col sm:flex-row items-start sm:items-end gap-4">
-              <img src={user?.profilePic} alt="" className="w-20 h-20 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg" />
-              <div className="flex-1">
-                <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{user?.name}</h1>
-                <p className="text-sm text-gray-500">{user?.email}</p>
-                {user?.bio && <p className="text-sm text-gray-600 mt-1">{user.bio}</p>}
-                <p className="text-xs text-gray-400 mt-1">
-                  Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "recently"}
-                  {user?.role === "admin" && <span className="ml-2 px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-xs font-medium">Admin</span>}
-                </p>
-              </div>
-            </div>
+          <div className="bg-gradient-to-r from-orange-500 to-orange-400 h-28 sm:h-36 relative">
+            <img src={user?.profilePic} alt="" className="absolute -bottom-10 sm:-bottom-14 left-6 w-20 h-20 sm:w-28 sm:h-28 rounded-full border-4 border-white shadow-lg object-cover" />
+          </div>
+          <div className="pt-14 sm:pt-18 px-6 pb-6">
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">{user?.name}</h1>
+            <p className="text-sm text-gray-500 mt-0.5">{user?.email}</p>
+            {user?.bio && <p className="text-sm text-gray-600 mt-2">{user.bio}</p>}
+            <p className="text-xs text-gray-400 mt-2">
+              Joined {user?.createdAt ? new Date(user.createdAt).toLocaleDateString("en-US", { month: "long", year: "numeric" }) : "recently"}
+              {user?.role === "admin" && <span className="ml-2 px-2 py-0.5 bg-orange-100 text-orange-600 rounded-full text-xs font-medium">Admin</span>}
+            </p>
           </div>
         </div>
 
