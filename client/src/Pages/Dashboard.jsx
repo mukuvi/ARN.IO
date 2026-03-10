@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
 import Header from "../Components/Header";
 import * as api from "../api";
 
@@ -485,7 +486,13 @@ export default function Dashboard() {
                               ? "bg-orange-500 text-white rounded-br-sm"
                               : "bg-white border border-gray-200 text-gray-700 rounded-bl-sm"
                           }`}>
-                            <div className="whitespace-pre-line">{m.message}</div>
+                            {m.role === "assistant" ? (
+                              <div className="prose prose-sm max-w-none prose-headings:text-gray-800 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-2 prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-strong:text-gray-800 prose-a:text-orange-500">
+                                <ReactMarkdown>{m.message}</ReactMarkdown>
+                              </div>
+                            ) : (
+                              <div className="whitespace-pre-line">{m.message}</div>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -685,7 +692,9 @@ export default function Dashboard() {
                     </button>
                   </div>
                   {suggestions ? (
-                    <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{suggestions}</div>
+                    <div className="prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-800 prose-headings:font-semibold prose-headings:mt-3 prose-headings:mb-2 prose-p:my-1.5 prose-ul:my-1.5 prose-ol:my-1.5 prose-li:my-0.5 prose-strong:text-gray-800">
+                      <ReactMarkdown>{suggestions}</ReactMarkdown>
+                    </div>
                   ) : (
                     <p className="text-sm text-gray-400">Click the button to get personalized book suggestions based on your reading history</p>
                   )}
