@@ -60,7 +60,9 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     book_id INTEGER NOT NULL,
+    chapter_number INTEGER,
     content TEXT NOT NULL,
+    note_type TEXT DEFAULT 'note',
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE

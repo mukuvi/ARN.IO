@@ -1,3 +1,20 @@
 # ARN.IO
 
-> An AI-powered solution designed to monitor and analyze a student's reading behaviour, providing real-time insights and personalized feedback to enhance the learning experience
+A reading platform built with React and SQLite.
+
+## Structure
+
+```
+client/   React frontend (Vite + Tailwind)
+server/   Express backend (SQLite + JWT auth)
+```
+
+## Setup
+
+```bash
+# Server
+cd server && npm install && npm run dev
+
+# Client
+cd client && npm install && npm run dev
+```
