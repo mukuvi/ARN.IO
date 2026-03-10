@@ -12,6 +12,8 @@ export default function Header({ user }) {
     navigate("/");
   }
 
+  const isAdmin = user?.role === "admin";
+
   return (
     <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 sticky top-0 z-50">
       <Link to="/" className="text-xl font-bold text-orange-500 tracking-tight">
@@ -19,36 +21,24 @@ export default function Header({ user }) {
       </Link>
 
       <nav className="hidden sm:flex items-center gap-5">
-        <Link
-          to="/"
-          className={`text-sm font-medium transition-colors ${location.pathname === "/" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}
-        >
-          Home
-        </Link>
+        <Link to="/" className={`text-sm font-medium transition-colors ${location.pathname === "/" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}>Home</Link>
 
         {user ? (
           <>
-            <Link
-              to="/dashboard"
-              className={`text-sm font-medium transition-colors ${location.pathname === "/dashboard" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}
-            >
-              Dashboard
-            </Link>
+            <Link to="/dashboard" className={`text-sm font-medium transition-colors ${location.pathname === "/dashboard" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}>Dashboard</Link>
+            {isAdmin && (
+              <Link to="/mukuvi" className={`text-sm font-medium transition-colors ${location.pathname === "/mukuvi" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}>Admin</Link>
+            )}
             <div className="flex items-center gap-3 ml-2 pl-4 border-l border-gray-200">
-              <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
-              <span className="text-sm text-gray-700 hidden md:inline">{user.name}</span>
-              <button onClick={logout} className="text-xs text-gray-400 hover:text-red-500 transition-colors">
-                Logout
-              </button>
+              <Link to="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
+                <span className="text-sm text-gray-700 hidden md:inline">{user.name}</span>
+              </Link>
+              <button onClick={logout} className="text-xs text-gray-400 hover:text-red-500 transition-colors">Logout</button>
             </div>
           </>
         ) : (
-          <Link
-            to="/login"
-            className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors"
-          >
-            Sign In
-          </Link>
+          <Link to="/login" className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors">Sign In</Link>
         )}
       </nav>
 
@@ -68,6 +58,10 @@ export default function Header({ user }) {
             {user ? (
               <>
                 <Link to="/dashboard" onClick={() => setMenuOpen(false)} className="text-sm font-medium text-gray-700 hover:text-orange-500">Dashboard</Link>
+                <Link to="/profile" onClick={() => setMenuOpen(false)} className="text-sm font-medium text-gray-700 hover:text-orange-500">Profile</Link>
+                {isAdmin && (
+                  <Link to="/mukuvi" onClick={() => setMenuOpen(false)} className="text-sm font-medium text-gray-700 hover:text-orange-500">Admin Panel</Link>
+                )}
                 <div className="flex items-center gap-3 pt-3 border-t border-gray-200">
                   <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
                   <span className="text-sm text-gray-700">{user.name}</span>

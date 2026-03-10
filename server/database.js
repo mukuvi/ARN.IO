@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import bcryptjs from "bcryptjs";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -16,6 +17,8 @@ db.exec(`
     email TEXT UNIQUE NOT NULL,
     password TEXT NOT NULL,
     profile_pic TEXT DEFAULT '',
+    role TEXT DEFAULT 'user',
+    bio TEXT DEFAULT '',
     created_at TEXT DEFAULT (datetime('now')),
     last_login TEXT
   );
@@ -30,6 +33,7 @@ db.exec(`
     pages INTEGER DEFAULT 0,
     published_year INTEGER,
     rating REAL DEFAULT 0,
+    uploaded_by INTEGER,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
@@ -77,7 +81,30 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now')),
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS reading_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    book_id INTEGER NOT NULL,
+    minutes_read INTEGER DEFAULT 0,
+    pages_read INTEGER DEFAULT 0,
+    session_date TEXT DEFAULT (date('now')),
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE
+  );
 `);
+
+const adminExists = db.prepare("SELECT id FROM users WHERE email = ?").get("mukuvi@arnio.com");
+if (!adminExists) {
+  const hashedPw = bcryptjs.hashSync("mukuvi", 10);
+  db.prepare("INSERT INTO users (name,email,password,profile_pic,role,bio,last_login) VALUES (?,?,?,?,?,?,datetime('now'))").run(
+    "Mukuvi", "mukuvi@arnio.com", hashedPw,
+    "https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&name=Mukuvi",
+    "admin", "ARN.IO Platform Administrator"
+  );
+  console.log("Admin account created: mukuvi@arnio.com");
+}
 
 // --- SEED DATA ---
 const bookCount = db.prepare("SELECT COUNT(*) as count FROM books").get();

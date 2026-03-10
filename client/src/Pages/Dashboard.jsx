@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import Header from "../Components/Header";
 import * as api from "../api";
 
@@ -8,6 +8,7 @@ export default function Dashboard() {
   const [user, setUser] = useState(null);
   const [books, setBooks] = useState([]);
   const [progress, setProgress] = useState([]);
+  const [stats, setStats] = useState(null);
   const [selectedBook, setSelectedBook] = useState(null);
   const [chapters, setChapters] = useState([]);
   const [currentChapter, setCurrentChapter] = useState(null);
@@ -25,6 +26,9 @@ export default function Dashboard() {
   const [notes, setNotes] = useState([]);
   const [noteInput, setNoteInput] = useState("");
 
+  const [suggestions, setSuggestions] = useState(null);
+  const [suggestLoading, setSuggestLoading] = useState(false);
+
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
     if (!token) { navigate("/login"); return; }
@@ -37,10 +41,11 @@ export default function Dashboard() {
 
   async function loadData() {
     try {
-      const [meRes, booksRes, progRes] = await Promise.all([api.getMe(), api.getBooks(), api.getProgress()]);
+      const [meRes, booksRes, progRes, statsRes] = await Promise.all([api.getMe(), api.getBooks(), api.getProgress(), api.getStats()]);
       setUser(meRes.user);
       setBooks(booksRes.books);
       setProgress(progRes.progress);
+      setStats(statsRes.stats);
       localStorage.setItem("arn_user", JSON.stringify(meRes.user));
     } catch (err) {
       if (err.message === "Invalid token" || err.message === "Token expired" || err.message === "No token provided") {
@@ -140,6 +145,23 @@ export default function Dashboard() {
   );
 
   const myBooks = progress.map((p) => ({ ...p, book: books.find((b) => b.id === p.book_id) })).filter((p) => p.book);
+
+  async function getAiSuggestions() {
+    setSuggestLoading(true);
+    try {
+      const genres = myBooks.map(b => b.book?.genre).filter(Boolean);
+      const titles = myBooks.map(b => b.book?.title).filter(Boolean);
+      const msg = genres.length > 0
+        ? `Based on my reading history (genres: ${[...new Set(genres)].join(", ")}; books: ${titles.slice(0, 3).join(", ")}), suggest 3 new books I should read next. Give title, author, and a one-line reason.`
+        : "Suggest 3 great books for a new reader who wants to explore different genres. Give title, author, and a one-line reason.";
+      const res = await api.aiChat(null, msg);
+      setSuggestions(res.reply);
+    } catch {
+      setSuggestions("Could not load suggestions right now. Try again later.");
+    } finally {
+      setSuggestLoading(false);
+    }
+  }
 
   if (loading) {
     return (

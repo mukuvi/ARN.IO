@@ -13,7 +13,7 @@ router.get("/", authenticateToken, (req, res) => {
       FROM reading_progress rp
       JOIN books b ON b.id = rp.book_id
       WHERE rp.user_id = ?
-      ORDER BY rp.last_read_at DESC
+      ORDER BY rp.last_read DESC
     `).all(req.user.id);
     res.json({ progress });
   } catch (e) {
@@ -32,7 +32,7 @@ router.put("/:bookId", authenticateToken, (req, res) => {
     const existing = db.prepare("SELECT id, streak_days FROM reading_progress WHERE user_id=? AND book_id=?").get(userId, bookId);
 
     if (existing) {
-      db.prepare("UPDATE reading_progress SET current_chapter=?, progress_percent=?, streak_days=streak_days+1, last_read_at=datetime('now') WHERE id=?")
+      db.prepare("UPDATE reading_progress SET current_chapter=?, progress_percent=?, streak_days=streak_days+1, last_read=datetime('now') WHERE id=?")
         .run(currentChapter || 1, progressPercent || 0, existing.id);
     } else {
       db.prepare("INSERT INTO reading_progress (user_id, book_id, current_chapter, progress_percent, streak_days) VALUES (?,?,?,?,1)")

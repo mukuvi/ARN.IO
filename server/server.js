@@ -5,6 +5,7 @@ import bookRoutes from "./routes/books.js";
 import progressRoutes from "./routes/progress.js";
 import notesRoutes from "./routes/notes.js";
 import aiRoutes from "./routes/ai.js";
+import adminRoutes from "./routes/admin.js";
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -19,14 +20,14 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
-// Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/books", bookRoutes);
 app.use("/api/progress", progressRoutes);
 app.use("/api/notes", notesRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
