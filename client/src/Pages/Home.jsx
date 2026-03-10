@@ -32,7 +32,7 @@ export default function Home() {
         </h1>
         <p className="text-base sm:text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-8 sm:mb-10 px-2">
           Upload your books, read them in a clean interface, chat with an AI that actually understands your content,
-          track your progress, and discover new reads — all in one place.
+          track your progress and discover new reads - all in one place.
         </p>
         <button
           onClick={() => navigate(user ? "/dashboard" : "/login")}
