@@ -170,6 +170,45 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
   }
 });
 
+// ---- AI Author Detection ----
+async function detectAuthor(text, title) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) return null;
+
+  // Use start of text where author info is most likely
+  const excerpt = text.slice(0, 5000);
+
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: "You detect book authors. Respond with ONLY the author's name — nothing else. If you cannot determine the author, respond with exactly: Unknown" },
+          { role: "user", content: `Who is the author of this book?\n\nTitle: "${title}"\n\n--- BOOK TEXT (first pages) ---\n${excerpt}` }
+        ],
+        temperature: 0.1,
+        max_tokens: 100,
+      }),
+    });
+
+    const data = await response.json();
+    const name = data?.choices?.[0]?.message?.content?.trim();
+    if (name && name.toLowerCase() !== "unknown" && name.length < 100) {
+      console.log(`AI detected author: "${name}" for "${title}"`);
+      return name;
+    }
+    return null;
+  } catch (e) {
+    console.error("Author detection failed:", e.message);
+    return null;
+  }
+}
+
 // ---- AI Chapter Summarization ----
 async function summarizeIntoChapters(text, title, author) {
   const apiKey = process.env.GROQ_API_KEY;
@@ -319,6 +358,12 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
     }
 
     if (!title || !content) return res.status(400).json({ error: "Title and content are required" });
+
+    // If no author provided, use AI to detect the author from the book text
+    if (!author || author.trim() === "" || author.trim().toLowerCase() === "unknown") {
+      const detectedAuthor = await detectAuthor(content, title);
+      if (detectedAuthor) author = detectedAuthor;
+    }
 
     // Strip HTML tags if content looks like HTML
     if (/<[^>]+>/.test(content)) {

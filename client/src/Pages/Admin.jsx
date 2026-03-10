@@ -183,10 +183,6 @@ export default function Admin() {
               {[
                 { label: "Total Users", value: stats.totalUsers },
                 { label: "Total Books", value: stats.totalBooks },
-                { label: "Total Chapters", value: stats.totalChapters },
-                { label: "Active Readers", value: stats.activeReaders },
-                { label: "Total Notes", value: stats.totalNotes },
-                { label: "AI Chats", value: stats.totalChats },
                 { label: "Admins", value: stats.totalAdmins },
                 { label: "Blacklisted", value: stats.blacklistedUsers || 0, warn: true },
               ].map((s) => (

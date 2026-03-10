@@ -791,14 +791,6 @@ export default function Dashboard() {
                       </div>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
-                      <p className="text-xs font-medium text-gray-500 mb-1">Favorite Genre</p>
-                      <p className="text-lg font-bold text-gray-900">{stats.favoriteGenre}</p>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4">
-                      <p className="text-xs font-medium text-gray-500 mb-1">Chapters Read</p>
-                      <p className="text-lg font-bold text-gray-900">{stats.totalChaptersRead || 0}</p>
-                    </div>
-                    <div className="bg-white border border-gray-200 rounded-xl p-4">
                       <p className="text-xs font-medium text-gray-500 mb-1">Reading Days</p>
                       <p className="text-lg font-bold text-gray-900">{stats.totalReadingDays || streak.totalDays || 0}</p>
                     </div>

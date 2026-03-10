@@ -164,24 +164,7 @@ export default function Profile() {
         )}
 
         {stats && (
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-sm font-medium text-gray-600 mb-1">Average Progress</p>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 h-2 bg-gray-200 rounded-full">
-                  <div className="h-full bg-orange-500 rounded-full" style={{ width: `${stats.avgProgress}%` }}></div>
-                </div>
-                <span className="text-sm font-bold text-gray-900">{stats.avgProgress}%</span>
-              </div>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-sm font-medium text-gray-600 mb-1">Favorite Genre</p>
-              <p className="text-lg font-bold text-gray-900">{stats.favoriteGenre}</p>
-            </div>
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <p className="text-sm font-medium text-gray-600 mb-1">AI Conversations</p>
-              <p className="text-lg font-bold text-gray-900">{stats.totalChats || 0}</p>
-            </div>
+          <div className="mb-6">
           </div>
         )}
 
