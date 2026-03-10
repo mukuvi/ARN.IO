@@ -11,15 +11,15 @@ const pdfParse = require("pdf-parse");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Get all books
+// Get all books (only the user's own uploads)
 router.get("/", authenticateToken, async (req, res) => {
   try {
     const books = (await pool.query(`
       SELECT b.id, b.title, b.author, b.genre, b.cover_url, b.description, 
              b.pages, b.published_year, b.rating,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
-      FROM books b ORDER BY b.title
-    `)).rows;
+      FROM books b WHERE b.uploaded_by = $1 ORDER BY b.title
+    `, [req.user.id])).rows;
     res.json({ books });
   } catch (e) {
     console.error("Get books:", e);
@@ -27,10 +27,10 @@ router.get("/", authenticateToken, async (req, res) => {
   }
 });
 
-// Get single book
+// Get single book (must belong to user)
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
-    const book = (await pool.query("SELECT * FROM books WHERE id=$1", [req.params.id])).rows[0];
+    const book = (await pool.query("SELECT * FROM books WHERE id=$1 AND uploaded_by=$2", [req.params.id, req.user.id])).rows[0];
     if (!book) return res.status(404).json({ error: "Book not found" });
     const chapters = (await pool.query("SELECT chapter_number,title FROM chapters WHERE book_id=$1 ORDER BY chapter_number", [book.id])).rows;
     res.json({ book, chapters });
@@ -52,7 +52,7 @@ router.get("/:id/chapters/:num", authenticateToken, async (req, res) => {
   }
 });
 
-// Search books (local)
+// Search books (local — user's own only)
 router.get("/search/:query", authenticateToken, async (req, res) => {
   try {
     const q = `%${req.params.query}%`;
@@ -60,8 +60,8 @@ router.get("/search/:query", authenticateToken, async (req, res) => {
       SELECT b.id, b.title, b.author, b.genre, b.cover_url, b.description,
              b.pages, b.published_year, b.rating,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
-      FROM books b WHERE b.title ILIKE $1 OR b.author ILIKE $2 OR b.genre ILIKE $3 ORDER BY b.title
-    `, [q, q, q])).rows;
+      FROM books b WHERE b.uploaded_by = $1 AND (b.title ILIKE $2 OR b.author ILIKE $3 OR b.genre ILIKE $4) ORDER BY b.title
+    `, [req.user.id, q, q, q])).rows;
     res.json({ books });
   } catch (e) {
     console.error("Search:", e);

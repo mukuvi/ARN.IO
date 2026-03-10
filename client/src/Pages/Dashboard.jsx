@@ -313,7 +313,37 @@ export default function Dashboard() {
                   </div>
                 </button>
               ))}
+              {filteredBooks.length === 0 && !search && (
+                <p className="text-xs text-gray-400 px-1">No books yet. Upload one to get started!</p>
+              )}
             </div>
+
+            {search.trim().length >= 2 && (
+              <div className="px-3 pb-4">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 mb-2">
+                  {searchLoading ? "Searching online..." : "Online Results"}
+                </p>
+                {onlineResults.map((b) => (
+                  <a
+                    key={b.googleId}
+                    href={b.previewLink || b.infoLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center gap-3 p-2 rounded-lg text-left text-sm transition-all mb-1 hover:bg-white"
+                  >
+                    <img src={b.cover_url} alt="" className="w-8 h-12 rounded object-cover flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{b.title}</p>
+                      <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                      <p className="text-xs text-orange-500">Google Books</p>
+                    </div>
+                  </a>
+                ))}
+                {!searchLoading && onlineResults.length === 0 && (
+                  <p className="text-xs text-gray-400 px-1">No online results found</p>
+                )}
+              </div>
+            )}
           </div>
         </aside>
 
@@ -578,8 +608,8 @@ export default function Dashboard() {
                     <p className="text-xs text-gray-500 mt-1">Completed</p>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-xl p-4">
-                    <p className="text-2xl font-bold text-orange-500">{stats?.maxStreak || 0}</p>
-                    <p className="text-xs text-gray-500 mt-1">Best Streak</p>
+                    <p className="text-2xl font-bold text-orange-500">{streak.current || stats?.maxStreak || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Day Streak</p>
                   </div>
                   <div className="bg-white border border-gray-200 rounded-xl p-4">
                     <p className="text-2xl font-bold text-gray-900">{stats?.totalNotes || 0}</p>
@@ -588,7 +618,7 @@ export default function Dashboard() {
                 </div>
 
                 {stats && (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-6">
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
                       <p className="text-xs font-medium text-gray-500 mb-2">Average Progress</p>
                       <div className="flex items-center gap-3">
@@ -603,8 +633,12 @@ export default function Dashboard() {
                       <p className="text-lg font-bold text-gray-900">{stats.favoriteGenre}</p>
                     </div>
                     <div className="bg-white border border-gray-200 rounded-xl p-4">
-                      <p className="text-xs font-medium text-gray-500 mb-1">Total Streak Days</p>
-                      <p className="text-lg font-bold text-gray-900">{stats.totalStreak}</p>
+                      <p className="text-xs font-medium text-gray-500 mb-1">Chapters Read</p>
+                      <p className="text-lg font-bold text-gray-900">{stats.totalChaptersRead || 0}</p>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Reading Days</p>
+                      <p className="text-lg font-bold text-gray-900">{stats.totalReadingDays || streak.totalDays || 0}</p>
                     </div>
                   </div>
                 )}
@@ -632,8 +666,8 @@ export default function Dashboard() {
                                 <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${p.progress_percent}%` }}></div>
                               </div>
                             </div>
-                            {p.streak_days > 0 && (
-                              <p className="text-xs text-orange-500 mt-1 font-medium">{p.streak_days} day streak</p>
+                            {streak.current > 0 && (
+                              <p className="text-xs text-orange-500 mt-1 font-medium">🔥 {streak.current} day streak</p>
                             )}
                           </div>
                         </button>

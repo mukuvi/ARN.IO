@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import Header from "../Components/Header";
 
 const features = [
-  { title: "Classic Books", desc: "Read titles like Blossoms of the Savannah, The Art of War, and more directly in your browser." },
-  { title: "Reading Assistant", desc: "Ask questions, get summaries, and explore themes with our built in helper." },
-  { title: "Track Progress", desc: "Monitor your reading streaks, bookmarks, and chapter progress across all titles." },
+  { title: "Upload & Read Books", desc: "Upload PDFs, DOCX, or text files and read them chapter-by-chapter in a clean, distraction-free interface." },
+  { title: "AI Reading Assistant", desc: "Chat with an AI powered by Gemini that actually reads your books and gives real answers, summaries, and recommendations." },
+  { title: "Track Your Progress", desc: "Monitor your reading streaks, chapter progress, and completion stats across all your uploaded books." },
   { title: "Notes & Highlights", desc: "Save your thoughts and key passages while reading. Never lose an insight." },
-  { title: "Smart Search", desc: "Find books by title, author, or genre instantly." },
-  { title: "Clean Reading UI", desc: "A distraction free reading experience designed for long sessions." },
+  { title: "Smart Search", desc: "Search your uploaded books and discover new ones from Google Books — all in one place." },
+  { title: "Real Reading Stats", desc: "See chapters read, reading days, favorite genres, and your daily streak — all based on your real activity." },
 ];
 
 export default function Home() {
@@ -31,8 +31,8 @@ export default function Home() {
           <span className="text-orange-500">ARN.IO</span>
         </h1>
         <p className="text-base sm:text-lg md:text-xl text-gray-500 max-w-2xl mx-auto mb-8 sm:mb-10 px-2">
-          A reading companion that puts everything in one place. Browse a curated library,
-          pick up where you left off, take notes on any chapter, and search across all your books.
+          Upload your books, read them in a clean interface, chat with an AI that actually understands your content,
+          track your progress, and discover new reads — all in one place.
         </p>
         <button
           onClick={() => navigate(user ? "/dashboard" : "/login")}
