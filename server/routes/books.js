@@ -113,57 +113,121 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
 
 // ---- Smart chapter splitting ----
 function splitIntoChapters(text) {
-  // 1) Try explicit chapter/part markers: "Chapter 1", "CHAPTER ONE", "Part 2", etc.
-  const chapterRegex = /\n\s*(?=(?:chapter|parte?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[^\n]*)/i;
-  let splits = text.split(chapterRegex).filter(s => s.trim());
-  if (splits.length > 1) {
-    return splits.map((chunk, i) => {
-      const titleMatch = chunk.match(/^((?:chapter|parte?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[^\n]*)/i);
-      return {
-        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Chapter ${i + 1}`,
-        content: chunk.trim(),
-      };
-    });
+  // Clean up excessive whitespace but preserve paragraph structure
+  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+
+  // --- Step 1: Remove Table of Contents ---
+  // TOC is typically a list of short lines with page numbers or chapter names without body text.
+  // Detect and strip it so it doesn't create fake chapters.
+  text = removeTOC(text);
+
+  // --- Step 2: Try explicit "Chapter N" / "Part N" markers ---
+  const chapterPattern = /^[ \t]*(?:chapter|part)\s+(?:\d{1,3}|[ivxlcdm]{1,10}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)[^\n]*/im;
+  let chapters = splitByPattern(text, chapterPattern, 200);
+  if (chapters) return chapters;
+
+  // --- Step 3: Try "Section/Unit/Lesson/Module N" markers ---
+  const sectionPattern = /^[ \t]*(?:section|unit|lesson|module|topic)\s+\d+[^\n]*/im;
+  chapters = splitByPattern(text, sectionPattern, 200);
+  if (chapters) return chapters;
+
+  // --- Step 4: Try standalone numbered headings like "1. Title" or "1 - Title" at line start ---
+  const numberedPattern = /^[ \t]*\d{1,3}[\.\)\-:]\s+[A-Z][^\n]*/m;
+  chapters = splitByPattern(text, numberedPattern, 200);
+  if (chapters) return chapters;
+
+  // --- Step 5: Try ALL-CAPS headings (at least 5 chars, on their own line with body text after) ---
+  const capsPattern = /^[ \t]*[A-Z][A-Z\s]{4,}$/m;
+  chapters = splitByPattern(text, capsPattern, 300);
+  if (chapters) return chapters;
+
+  // --- Step 6: Group paragraphs into natural-length chapters ---
+  return groupParagraphs(text);
+}
+
+// Remove Table of Contents / Index / Contents sections
+function removeTOC(text) {
+  // Match a TOC header line followed by lines that look like TOC entries
+  // TOC entries: short text (chapter names) often followed by dots/spaces and page numbers
+  const tocHeaderRegex = /^[ \t]*(?:table\s+of\s+contents?|contents?|index)\s*$/im;
+  const match = text.match(tocHeaderRegex);
+  if (!match) return text;
+
+  const tocStart = match.index;
+  const afterHeader = text.slice(tocStart);
+  const lines = afterHeader.split("\n");
+
+  // Walk lines after the TOC header; TOC entries are typically:
+  //   - short (< 80 chars)
+  //   - may contain dot leaders "....." or page numbers
+  //   - may start with "Chapter" / numbers
+  // Stop when we hit a long paragraph (>120 chars) or a clear chapter start with body
+  let tocEnd = tocStart;
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line === "") { tocEnd += lines[i].length + 1; continue; }
+    const isTocEntry = (
+      line.length < 100 &&
+      (/\.{3,}/.test(line) || /\d+\s*$/.test(line) || line.length < 60)
+    );
+    if (isTocEntry) {
+      tocEnd += lines[i].length + 1;
+    } else {
+      break;
+    }
   }
 
-  // 2) Try numbered section markers: "1.", "1)", "Section 1", "UNIT 1", "Lesson 1", "Module 1"
-  const sectionRegex = /\n\s*(?=(?:section|unit|lesson|module|topic)\s+\d+[^\n]*)/i;
-  splits = text.split(sectionRegex).filter(s => s.trim());
-  if (splits.length > 1) {
-    return splits.map((chunk, i) => {
-      const titleMatch = chunk.match(/^((?:section|unit|lesson|module|topic)\s+\d+[^\n]*)/i);
-      return {
-        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Section ${i + 1}`,
-        content: chunk.trim(),
-      };
-    });
+  // Remove the TOC block
+  return text.slice(0, tocStart) + "\n" + text.slice(tocEnd);
+}
+
+// Split text by a heading pattern, returning chapters only if each has real body content
+function splitByPattern(text, pattern, minBodyLength) {
+  // Find all heading positions
+  const headings = [];
+  const globalPattern = new RegExp(pattern.source, pattern.flags.replace("m", "") + "gm");
+  let m;
+  while ((m = globalPattern.exec(text)) !== null) {
+    headings.push({ index: m.index, match: m[0].trim() });
   }
 
-  // 3) Try all-caps or bold-looking headings on their own line (e.g. "INTRODUCTION", "THE BEGINNING")
-  const headingRegex = /\n\s*(?=(?:[A-Z][A-Z\s]{4,})\s*\n)/;
-  splits = text.split(headingRegex).filter(s => s.trim());
-  if (splits.length >= 3 && splits.length <= 80) {
-    return splits.map((chunk, i) => {
-      const titleMatch = chunk.match(/^([A-Z][A-Z\s]{4,})/);
-      return {
-        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Section ${i + 1}`,
-        content: chunk.trim(),
-      };
-    });
+  if (headings.length < 2) return null;
+
+  // Build chapters between headings
+  const chapters = [];
+  for (let i = 0; i < headings.length; i++) {
+    const start = headings[i].index;
+    const end = i + 1 < headings.length ? headings[i + 1].index : text.length;
+    const chunkText = text.slice(start, end).trim();
+
+    // The title is the heading line; content is everything after it
+    const newlineIdx = chunkText.indexOf("\n");
+    const title = newlineIdx > 0 ? chunkText.slice(0, newlineIdx).trim() : chunkText.slice(0, 80).trim();
+    const body = newlineIdx > 0 ? chunkText.slice(newlineIdx).trim() : "";
+
+    chapters.push({ title: title.replace(/\s+/g, " "), content: chunkText });
   }
 
-  // 4) Try splitting by large paragraph gaps (3+ blank lines) for natural sections
-  splits = text.split(/\n\s*\n\s*\n\s*\n/).filter(s => s.trim());
-  if (splits.length >= 2 && splits.length <= 60) {
-    return splits.map((chunk, i) => {
-      // Use the first line as a title if it's short enough, otherwise generic
-      const firstLine = chunk.trim().split("\n")[0].trim();
-      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Section ${i + 1}`;
-      return { title, content: chunk.trim() };
-    });
+  // Handle any content before the first heading (preface, intro, etc.)
+  if (headings[0].index > 0) {
+    const prefaceText = text.slice(0, headings[0].index).trim();
+    if (prefaceText.length > minBodyLength) {
+      const firstLine = prefaceText.split("\n")[0].trim();
+      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : "Introduction";
+      chapters.unshift({ title, content: prefaceText });
+    }
   }
 
-  // 5) Split by double newlines into paragraphs, then group into ~5000 word chapters
+  // Verify the splits look real: most chunks should have body text, not just one-liners (TOC entries)
+  const chunksWithBody = chapters.filter(c => c.content.length > minBodyLength);
+  if (chunksWithBody.length < chapters.length * 0.5) return null; // Probably splitting on TOC lines, reject
+
+  // Filter out tiny stub chapters (< 50 chars body)
+  return chapters.filter(c => c.content.length > 50);
+}
+
+// Fallback: group paragraphs into ~5000 word chapters
+function groupParagraphs(text) {
   const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
   if (paragraphs.length <= 1) {
     return [{ title: "Full Text", content: text.trim() }];
@@ -175,11 +239,9 @@ function splitIntoChapters(text) {
   let currentWords = 0;
 
   for (const para of paragraphs) {
-    const paraWords = para.split(/\s+/).length;
+    const paraWords = para.trim().split(/\s+/).length;
     if (currentWords > 0 && currentWords + paraWords > TARGET_WORDS) {
-      const firstLine = currentContent.trim().split("\n")[0].trim();
-      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Chapter ${chapters.length + 1}`;
-      chapters.push({ title, content: currentContent.trim() });
+      chapters.push({ title: `Chapter ${chapters.length + 1}`, content: currentContent.trim() });
       currentContent = para;
       currentWords = paraWords;
     } else {
@@ -188,11 +250,10 @@ function splitIntoChapters(text) {
     }
   }
   if (currentContent.trim()) {
-    const firstLine = currentContent.trim().split("\n")[0].trim();
-    const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Chapter ${chapters.length + 1}`;
-    chapters.push({ title, content: currentContent.trim() });
+    chapters.push({ title: `Chapter ${chapters.length + 1}`, content: currentContent.trim() });
   }
 
+  // If we ended up with just one chapter, that's fine
   return chapters.length > 0 ? chapters : [{ title: "Full Text", content: text.trim() }];
 }
 
