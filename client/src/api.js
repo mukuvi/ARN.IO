@@ -31,6 +31,8 @@ export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);
 export const getChapter = (bookId, chapterNum) => request(`/books/${bookId}/chapters/${chapterNum}`);
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
+export const uploadDocument = (data) =>
+  request("/books/upload", { method: "POST", body: JSON.stringify(data) });
 
 export const getProgress = () => request("/progress");
 export const updateProgress = (bookId, data) =>

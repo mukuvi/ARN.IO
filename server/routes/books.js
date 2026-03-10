@@ -62,4 +62,49 @@ router.get("/search/:query", authenticateToken, (req, res) => {
   }
 });
 
+// User uploads their own document
+router.post("/upload", authenticateToken, (req, res) => {
+  try {
+    const { title, author, genre, content } = req.body;
+    if (!title || !content) return res.status(400).json({ error: "Title and content are required" });
+
+    const coverUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&size=200&name=${encodeURIComponent(title)}`;
+    const result = db.prepare(
+      "INSERT INTO books (title, author, genre, cover_url, description, pages, published_year, rating, uploaded_by) VALUES (?,?,?,?,?,?,?,?,?)"
+    ).run(title, author || "Unknown", genre || "Personal", coverUrl, `Uploaded by user`, 0, new Date().getFullYear(), 0, req.user.id);
+
+    const bookId = result.lastInsertRowid;
+
+    // Split content into chapters (by double newline or "Chapter" headings, or just chunk it)
+    const chapterSplits = content.split(/\n\s*(?=chapter\s+\d|part\s+\d)/i);
+    let chapters;
+    if (chapterSplits.length > 1) {
+      chapters = chapterSplits.map((text, i) => {
+        const titleMatch = text.match(/^(chapter\s+\d+[^\n]*|part\s+\d+[^\n]*)/i);
+        return { title: titleMatch ? titleMatch[1].trim() : `Chapter ${i + 1}`, content: text.trim() };
+      });
+    } else {
+      // Split into ~2000 char chunks as chapters
+      const chunkSize = 2000;
+      chapters = [];
+      for (let i = 0; i < content.length; i += chunkSize) {
+        chapters.push({ title: `Section ${chapters.length + 1}`, content: content.slice(i, i + chunkSize).trim() });
+      }
+      if (chapters.length === 0) chapters = [{ title: "Full Text", content: content.trim() }];
+    }
+
+    const ins = db.prepare("INSERT INTO chapters (book_id, chapter_number, title, content) VALUES (?,?,?,?)");
+    chapters.forEach((ch, i) => ins.run(bookId, i + 1, ch.title, ch.content));
+
+    // Auto-add to user's reading progress
+    db.prepare("INSERT OR IGNORE INTO reading_progress (user_id, book_id, current_chapter, progress_percent, streak_days) VALUES (?,?,?,?,?)")
+      .run(req.user.id, bookId, 1, 0, 0);
+
+    res.status(201).json({ message: "Document uploaded", bookId, chaptersCreated: chapters.length });
+  } catch (e) {
+    console.error("Upload document:", e);
+    res.status(500).json({ error: "Upload failed" });
+  }
+});
+
 export default router;

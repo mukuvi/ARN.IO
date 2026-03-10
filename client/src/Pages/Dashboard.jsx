@@ -29,6 +29,11 @@ export default function Dashboard() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadData, setUploadData] = useState({ title: "", author: "", genre: "", content: "" });
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
+
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
     if (!token) { navigate("/login"); return; }
@@ -161,6 +166,33 @@ export default function Dashboard() {
     } finally {
       setSuggestLoading(false);
     }
+  }
+
+  async function handleUpload() {
+    if (!uploadData.title || !uploadData.content) { setUploadMsg("Title and content are required"); return; }
+    setUploading(true);
+    setUploadMsg("");
+    try {
+      const res = await api.uploadDocument(uploadData);
+      setUploadMsg(`Uploaded! ${res.chaptersCreated} chapter(s) created.`);
+      setUploadData({ title: "", author: "", genre: "", content: "" });
+      await loadData();
+      setTimeout(() => { setShowUpload(false); setUploadMsg(""); }, 1500);
+    } catch (e) {
+      setUploadMsg(e.message);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function handleFileRead(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      setUploadData(prev => ({ ...prev, content: reader.result, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
+    };
+    reader.readAsText(file);
   }
 
   if (loading) {
@@ -506,6 +538,10 @@ export default function Dashboard() {
                     <img src={user?.profilePic} alt="" className="w-6 h-6 rounded-full" />
                     <span className="text-xs text-gray-600 hidden sm:inline">Profile</span>
                   </Link>
+                  <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-colors">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
+                    <span className="hidden sm:inline">Upload</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
@@ -628,6 +664,55 @@ export default function Dashboard() {
           )}
         </main>
       </div>
+
+      {showUpload && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setShowUpload(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-bold text-gray-900">Upload Document</h3>
+              <button onClick={() => setShowUpload(false)} className="text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+            </div>
+            <div className="p-4 space-y-4">
+              {uploadMsg && <div className={`px-4 py-2 rounded-lg text-sm ${uploadMsg.includes("Uploaded") ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`}>{uploadMsg}</div>}
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Title *</label>
+                <input type="text" value={uploadData.title} onChange={e => setUploadData(prev => ({ ...prev, title: e.target.value }))}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-orange-400" placeholder="Document title" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Author</label>
+                  <input type="text" value={uploadData.author} onChange={e => setUploadData(prev => ({ ...prev, author: e.target.value }))}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-orange-400" placeholder="Author name" />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-600 mb-1">Genre</label>
+                  <input type="text" value={uploadData.genre} onChange={e => setUploadData(prev => ({ ...prev, genre: e.target.value }))}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-orange-400" placeholder="e.g. Fiction" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Upload a file or paste content *</label>
+                <label className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-orange-400 transition-colors mb-2">
+                  <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                  <span className="text-sm text-gray-500">{uploadData.content ? "File loaded - change file" : "Choose .txt, .md, or .html file"}</span>
+                  <input type="file" accept=".txt,.md,.html,.text" onChange={handleFileRead} className="hidden" />
+                </label>
+                <textarea value={uploadData.content} onChange={e => setUploadData(prev => ({ ...prev, content: e.target.value }))}
+                  rows={6} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-orange-400 resize-none font-mono"
+                  placeholder="Or paste your text content here..." />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setShowUpload(false)} className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">Cancel</button>
+                <button onClick={handleUpload} disabled={uploading || !uploadData.title || !uploadData.content}
+                  className="px-5 py-2.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl text-sm font-medium transition-colors">
+                  {uploading ? "Uploading..." : "Upload Document"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

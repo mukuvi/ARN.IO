@@ -283,29 +283,30 @@ export default function Profile() {
             </div>
             <div className="border-t border-red-200 pt-6">
               <h3 className="text-lg font-semibold text-red-600 mb-2">Delete Account</h3>
-            <p className="text-sm text-gray-500 mb-4">This will permanently delete your account, all your reading progress, notes, and chat history. This cannot be undone.</p>
-            {!deleteConfirm ? (
-              <button onClick={() => setDeleteConfirm(true)} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium text-sm transition-colors">
-                Delete My Account
-              </button>
-            ) : (
-              <div className="space-y-3">
-                <p className="text-sm text-red-600 font-medium">Enter your password to confirm deletion:</p>
-                <input type="password" value={deletePw} onChange={(e) => setDeletePw(e.target.value)}
-                  className="w-full px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-gray-900 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400"
-                  placeholder="Your password" />
-                <div className="flex gap-3">
-                  <button onClick={handleDeleteAccount} disabled={deleting || !deletePw}
-                    className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white rounded-xl font-medium text-sm transition-colors">
-                    {deleting ? "Deleting..." : "Confirm Delete"}
-                  </button>
-                  <button onClick={() => { setDeleteConfirm(false); setDeletePw(""); }}
-                    className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium text-sm transition-colors">
-                    Cancel
-                  </button>
+              <p className="text-sm text-gray-500 mb-4">This will permanently delete your account, all your reading progress, notes, and chat history. This cannot be undone.</p>
+              {!deleteConfirm ? (
+                <button onClick={() => setDeleteConfirm(true)} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium text-sm transition-colors">
+                  Delete My Account
+                </button>
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-red-600 font-medium">Enter your password to confirm deletion:</p>
+                  <input type="password" value={deletePw} onChange={(e) => setDeletePw(e.target.value)}
+                    className="w-full px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-gray-900 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400"
+                    placeholder="Your password" />
+                  <div className="flex gap-3">
+                    <button onClick={handleDeleteAccount} disabled={deleting || !deletePw}
+                      className="px-6 py-3 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white rounded-xl font-medium text-sm transition-colors">
+                      {deleting ? "Deleting..." : "Confirm Delete"}
+                    </button>
+                    <button onClick={() => { setDeleteConfirm(false); setDeletePw(""); }}
+                      className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium text-sm transition-colors">
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
