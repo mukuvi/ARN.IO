@@ -31,7 +31,21 @@ export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);
 export const getChapter = (bookId, chapterNum) => request(`/books/${bookId}/chapters/${chapterNum}`);
 export const getFullText = (bookId) => request(`/books/${bookId}/full-text`);
+export const getBookFileUrl = (bookId) => {
+  const token = localStorage.getItem("arn_token");
+  return `${API}/books/${bookId}/file?token=${token}`;
+};
+export async function getBookFile(bookId) {
+  const token = localStorage.getItem("arn_token");
+  const res = await fetch(`${API}/books/${bookId}/file`, {
+    headers: { "Authorization": `Bearer ${token}` }
+  });
+  if (!res.ok) throw new Error("File not available");
+  const blob = await res.blob();
+  return { url: URL.createObjectURL(blob), type: blob.type };
+}
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
+export const deleteBook = (bookId) => request(`/books/${bookId}`, { method: "DELETE" });
 export const searchBooksOnline = (query) => request(`/books/search-online/${encodeURIComponent(query)}`);
 export async function uploadDocument({ title, author, genre, content, file }) {
   const token = localStorage.getItem("arn_token");

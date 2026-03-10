@@ -41,6 +41,9 @@ export default function Dashboard() {
   const [readingMode, setReadingMode] = useState("summary"); // "summary" or "full"
   const [fullText, setFullText] = useState(null);
   const [fullTextLoading, setFullTextLoading] = useState(false);
+  const [bookFileUrl, setBookFileUrl] = useState(null);
+  const [bookFileType, setBookFileType] = useState(null);
+  const [readerFullscreen, setReaderFullscreen] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
@@ -82,6 +85,8 @@ export default function Dashboard() {
     setChapterLoading(true);
     setReadingMode("summary");
     setFullText(null);
+    if (bookFileUrl) { URL.revokeObjectURL(bookFileUrl); setBookFileUrl(null); }
+    setBookFileType(null);
     try {
       const res = await api.getBook(book.id);
       setChapters(res.chapters || []);
@@ -305,19 +310,36 @@ export default function Dashboard() {
             <div className="px-3 pb-4">
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 mb-2">Library</p>
               {filteredBooks.map((b) => (
-                <button
+                <div
                   key={b.id}
-                  onClick={() => openBook(b)}
-                  className={`w-full flex items-center gap-3 p-2 rounded-lg text-left text-sm transition-all mb-1 ${
+                  className={`group w-full flex items-center gap-3 p-2 rounded-lg text-left text-sm transition-all mb-1 cursor-pointer ${
                     selectedBook?.id === b.id ? "bg-white border border-gray-300 shadow-sm" : "hover:bg-white"
                   }`}
+                  onClick={() => openBook(b)}
                 >
                   <img src={b.cover_url} alt="" className="w-8 h-12 rounded object-cover flex-shrink-0" />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-900 truncate">{b.title}</p>
                     <p className="text-xs text-gray-500 truncate">{b.author}</p>
                   </div>
-                </button>
+                  {b.uploaded_by === user?.id && (
+                    <button
+                      title="Delete book"
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        if (!confirm(`Delete "${b.title}"? This cannot be undone.`)) return;
+                        try {
+                          await api.deleteBook(b.id);
+                          if (selectedBook?.id === b.id) { setSelectedBook(null); setChapters([]); setCurrentChapter(null); }
+                          await loadData();
+                        } catch (err) { alert(err.message); }
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all flex-shrink-0"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                  )}
+                </div>
               ))}
               {filteredBooks.length === 0 && !search && (
                 <p className="text-xs text-gray-400 px-1">No books yet. Upload one to get started!</p>
@@ -404,13 +426,21 @@ export default function Dashboard() {
                       <button
                         onClick={async () => {
                           setReadingMode("full");
-                          if (!fullText && selectedBook) {
+                          if (!bookFileUrl && !fullText && selectedBook) {
                             setFullTextLoading(true);
                             try {
-                              const res = await api.getFullText(selectedBook.id);
-                              setFullText(res.fullText);
+                              // Try to load the original file first (PDF with images)
+                              const file = await api.getBookFile(selectedBook.id);
+                              setBookFileUrl(file.url);
+                              setBookFileType(file.type);
                             } catch {
-                              setFullText(null);
+                              // Fall back to plain text
+                              try {
+                                const res = await api.getFullText(selectedBook.id);
+                                setFullText(res.fullText);
+                              } catch {
+                                setFullText(null);
+                              }
                             } finally {
                               setFullTextLoading(false);
                             }
@@ -427,6 +457,19 @@ export default function Dashboard() {
                       <span className="ml-auto text-xs text-gray-400">
                         {readingMode === "summary" ? "AI-generated summaries" : "Original document"}
                       </span>
+                      {readingMode === "full" && (bookFileUrl || fullText) && (
+                        <button
+                          onClick={() => setReaderFullscreen(!readerFullscreen)}
+                          title={readerFullscreen ? "Exit fullscreen" : "Maximize reader"}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+                        >
+                          {readerFullscreen ? (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0v5m0-5h5m6 6l5 5m0 0v-5m0 5h-5M9 15l-5 5m0 0h5m-5 0v-5m11-6l5-5m0 0h-5m5 0v5" /></svg>
+                          ) : (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg>
+                          )}
+                        </button>
+                      )}
                     </div>
 
                     {readingMode === "summary" ? (
@@ -510,22 +553,52 @@ export default function Dashboard() {
                       </div>
                     ) : (
                       /* Full book reading mode */
-                      <div className="flex-1 overflow-y-auto bg-white">
+                      <div className={`${
+                        readerFullscreen
+                          ? "fixed inset-0 z-50 bg-white flex flex-col"
+                          : "flex-1 overflow-hidden bg-white flex flex-col"
+                      }`}>
+                        {readerFullscreen && (
+                          <div className="flex items-center justify-between px-4 py-2 bg-gray-50 border-b border-gray-200 flex-shrink-0">
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-bold text-gray-900 truncate">{selectedBook?.title}</h3>
+                              <p className="text-xs text-gray-500 truncate">by {selectedBook?.author}</p>
+                            </div>
+                            <button
+                              onClick={() => setReaderFullscreen(false)}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-xs font-medium transition-colors"
+                            >
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 9L4 4m0 0v5m0-5h5m6 6l5 5m0 0v-5m0 5h-5M9 15l-5 5m0 0h5m-5 0v-5m11-6l5-5m0 0h-5m5 0v5" /></svg>
+                              Exit Fullscreen
+                            </button>
+                          </div>
+                        )}
+                        <div className="flex-1 overflow-hidden">
                         {fullTextLoading ? (
                           <div className="flex items-center justify-center h-64 text-gray-400">
                             <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-                            Loading full book...
+                            Loading book...
                           </div>
+                        ) : bookFileUrl ? (
+                          /* Display actual document (PDF with images, formatting) */
+                          <iframe
+                            src={bookFileUrl}
+                            title={selectedBook?.title || "Book"}
+                            className="w-full h-full border-0"
+                            style={{ minHeight: "calc(100vh - 200px)" }}
+                          />
                         ) : fullText ? (
-                          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
-                            <div className="flex items-center gap-2 mb-1">
-                              <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-xs font-medium rounded-full">Full Text</span>
-                            </div>
-                            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{selectedBook?.title}</h3>
-                            <p className="text-sm text-gray-500 mb-1">by {selectedBook?.author}</p>
-                            <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
-                            <div className="text-gray-700 leading-relaxed text-sm sm:text-[15px] whitespace-pre-line">
-                              {fullText}
+                          <div className="h-full overflow-y-auto">
+                            <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-xs font-medium rounded-full">Full Text</span>
+                              </div>
+                              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{selectedBook?.title}</h3>
+                              <p className="text-sm text-gray-500 mb-1">by {selectedBook?.author}</p>
+                              <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
+                              <div className="text-gray-700 leading-relaxed text-sm sm:text-[15px] whitespace-pre-line">
+                                {fullText}
+                              </div>
                             </div>
                           </div>
                         ) : (
@@ -535,6 +608,7 @@ export default function Dashboard() {
                             <p className="text-xs mt-1">Only uploaded documents have the full text saved</p>
                           </div>
                         )}
+                        </div>
                       </div>
                     )}
                   </div>

@@ -26,7 +26,7 @@ router.get("/", authenticateToken, async (req, res) => {
   try {
     const books = (await pool.query(`
       SELECT b.id, b.title, b.author, b.genre, b.cover_url, b.description, 
-             b.pages, b.published_year, b.rating,
+             b.pages, b.published_year, b.rating, b.uploaded_by,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
       FROM books b
       WHERE b.uploaded_by = $1
@@ -370,6 +370,37 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
   } catch (e) {
     console.error("Upload document:", e);
     res.status(500).json({ error: "Upload failed" });
+  }
+});
+
+// User deletes their own uploaded book
+router.delete("/:id", authenticateToken, async (req, res) => {
+  try {
+    const book = (await pool.query(
+      "SELECT id, file_path, uploaded_by FROM books WHERE id=$1", [req.params.id]
+    )).rows[0];
+    if (!book) return res.status(404).json({ error: "Book not found" });
+    if (book.uploaded_by !== req.user.id) return res.status(403).json({ error: "You can only delete your own books" });
+
+    // Delete file from disk
+    if (book.file_path) {
+      const filePath = path.join(UPLOADS_DIR, book.file_path);
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+
+    // Delete related data
+    await pool.query("DELETE FROM ai_chats WHERE book_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM notes WHERE book_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM reading_sessions WHERE book_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM reading_progress WHERE book_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM chapters WHERE book_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM daily_streaks WHERE user_id=$1", [req.user.id]);
+    await pool.query("DELETE FROM books WHERE id=$1", [req.params.id]);
+
+    res.json({ message: "Book deleted" });
+  } catch (e) {
+    console.error("Delete book:", e);
+    res.status(500).json({ error: "Failed to delete book" });
   }
 });
 
