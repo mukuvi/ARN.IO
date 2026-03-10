@@ -152,7 +152,7 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
         title: info.title || "Unknown Title",
         author: (info.authors || []).join(", ") || "Unknown Author",
         genre: (info.categories || []).join(", ") || "General",
-        cover_url: info.imageLinks?.thumbnail?.replace("http:", "https:") || `https://ui-avatars.com/api/?background=6b7280&color=fff&bold=true&size=200&name=${encodeURIComponent(info.title || "Book")}`,
+        cover_url: info.imageLinks?.thumbnail?.replace("http:", "https:") || `https://api.dicebear.com/9.x/shapes/svg?seed=${encodeURIComponent(info.title || "Book")}&backgroundColor=f97316,ef4444,8b5cf6,3b82f6,10b981,f59e0b&size=200`,
         description: info.description || "",
         pages: info.pageCount || 0,
         published_year: info.publishedDate ? parseInt(info.publishedDate) : 0,
@@ -169,6 +169,24 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
     res.status(500).json({ error: "Online search failed" });
   }
 });
+
+// ---- Book Cover Finder ----
+async function findBookCover(title, author) {
+  // Try Open Library search for a real cover
+  try {
+    const q = encodeURIComponent(`${title} ${author || ""}`.trim());
+    const res = await fetch(`https://openlibrary.org/search.json?q=${q}&limit=1&fields=cover_i`, { signal: AbortSignal.timeout(4000) });
+    const data = await res.json();
+    const coverId = data?.docs?.[0]?.cover_i;
+    if (coverId) {
+      return `https://covers.openlibrary.org/b/id/${coverId}-L.jpg`;
+    }
+  } catch {}
+
+  // Fallback: nice gradient cover with book icon via DiceBear
+  const seed = encodeURIComponent(title);
+  return `https://api.dicebear.com/9.x/shapes/svg?seed=${seed}&backgroundColor=f97316,ef4444,8b5cf6,3b82f6,10b981,f59e0b&size=200`;
+}
 
 // ---- AI Author Detection ----
 async function detectAuthor(text, title) {
@@ -377,7 +395,7 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
     const wordCount = content.split(/\s+/).length;
     const estimatedPages = Math.max(1, Math.round(wordCount / 250));
 
-    const coverUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&size=200&name=${encodeURIComponent(title)}`;
+    const coverUrl = await findBookCover(title, author);
 
     // Store the book with full text
     const result = await pool.query(
