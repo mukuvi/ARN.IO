@@ -6,7 +6,7 @@ import multer from "multer";
 import mammoth from "mammoth";
 
 const require = createRequire(import.meta.url);
-const { PDFParse } = require("pdf-parse");
+const pdfParse = require("pdf-parse");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -81,10 +81,8 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
       const mime = file.mimetype || "";
 
       if (ext === "pdf" || mime === "application/pdf") {
-        const parser = new PDFParse({ data: new Uint8Array(file.buffer) });
-        const result = await parser.getText();
+        const result = await pdfParse(file.buffer);
         content = result.text;
-        await parser.destroy();
       } else if (ext === "docx" || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
         const result = await mammoth.extractRawText({ buffer: file.buffer });
         content = result.value;
