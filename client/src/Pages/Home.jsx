@@ -3,12 +3,12 @@ import { useNavigate } from "react-router-dom";
 import Header from "../Components/Header";
 
 const features = [
-  { title: "Upload & Read Books", desc: "Upload PDFs, DOCX, or text files and read them chapter-by-chapter in a clean, distraction-free interface." },
-  { title: "AI Reading Assistant", desc: "Chat with an AI powered by Gemini that actually reads your books and gives real answers, summaries, and recommendations." },
-  { title: "Track Your Progress", desc: "Monitor your reading streaks, chapter progress, and completion stats across all your uploaded books." },
+  { title: "Upload & Read Books", desc: "Upload PDFs, DOCX or text files and read them chapter-by-chapter in a clean, distraction-free interface." },
+  { title: "AI Reading Assistant", desc: "Chat with an AI powered by Gemini that actually reads your books and gives real answers, summaries and recommendations." },
+  { title: "Track Your Progress", desc: "Monitor your reading streaks, chapter progress and completion stats across all your uploaded books." },
   { title: "Notes & Highlights", desc: "Save your thoughts and key passages while reading. Never lose an insight." },
-  { title: "Smart Search", desc: "Search your uploaded books and discover new ones from Google Books — all in one place." },
-  { title: "Real Reading Stats", desc: "See chapters read, reading days, favorite genres, and your daily streak — all based on your real activity." },
+  { title: "Smart Search", desc: "Search your uploaded books and discover new ones from Google Books - all in one place." },
+  { title: "Real Reading Stats", desc: "See chapters read, reading days, favorite genres and your daily streak - all based on your real activity." },
 ];
 
 export default function Home() {
