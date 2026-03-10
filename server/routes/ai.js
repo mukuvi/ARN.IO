@@ -12,6 +12,19 @@ Be concise, helpful, and engaging. When discussing a specific book, reference it
 function getBuiltInResponse(message, bookTitle) {
   const msg = message.toLowerCase();
   
+  // Handle book suggestions - return actual library recommendations
+  if (msg.includes("suggest") || msg.includes("recommend") || msg.includes("should i read") || msg.includes("what to read")) {
+    const books = db.prepare("SELECT title, author, genre, description FROM books ORDER BY RANDOM() LIMIT 5").all();
+    if (books.length > 0) {
+      let reply = "Here are some books I'd recommend from our library:\n\n";
+      books.forEach((b, i) => {
+        reply += `${i + 1}. **${b.title}** by ${b.author}\n   Genre: ${b.genre}\n   ${b.description || "A great read worth exploring!"}\n\n`;
+      });
+      reply += "Would you like to know more about any of these?";
+      return reply;
+    }
+  }
+
   const responses = {
     summary: [
       `Here's a summary of "${bookTitle}":\n\nThis is a compelling work that explores fundamental themes relevant to its genre. The author masterfully weaves together narrative elements to create an engaging reading experience. The key themes include personal growth, understanding complex systems, and the human condition.\n\nWould you like me to go deeper into any specific aspect?`,
@@ -34,11 +47,12 @@ function getBuiltInResponse(message, bookTitle) {
   };
 
   if (msg.includes("summar")) return responses.summary[0];
-  if (msg.includes("theme") || msg.includes("meaning") || msg.includes("about")) return responses.theme[0];
-  if (msg.includes("character") || msg.includes("who")) return responses.character[0];
-  if (msg.includes("recommend") || msg.includes("similar") || msg.includes("like this")) return responses.recommend[0];
-  if (msg.includes("explain") || msg.includes("what") || msg.includes("why") || msg.includes("how")) return responses.explain[0];
+  if (msg.includes("theme") || msg.includes("meaning")) return responses.theme[0];
+  if (msg.includes("character") || msg.includes("who is") || msg.includes("who are")) return responses.character[0];
+  if (msg.includes("similar") || msg.includes("like this")) return responses.recommend[0];
+  if (msg.includes("explain") || msg.includes("why") || msg.includes("how does")) return responses.explain[0];
   if (msg.includes("help") || msg.includes("can you") || msg.includes("what can")) return responses.help[0];
+  if (msg.includes("about") || msg.includes("what")) return responses.theme[0];
 
   return `That's an interesting question about "${bookTitle}"! Based on the text, I can offer this perspective:\n\nThe work addresses your question through its narrative structure and thematic elements. The author's approach suggests a nuanced view that rewards careful reading and reflection.\n\nFeel free to ask more specific questions and I'll provide targeted insights!`;
 }
@@ -108,8 +122,9 @@ router.post("/chat", authenticateToken, async (req, res) => {
       .run(req.user.id, bookId || null, "user", message);
 
     // Get chat history
-    const history = db.prepare("SELECT role, message FROM ai_chats WHERE user_id=? AND book_id=? ORDER BY created_at DESC LIMIT 10")
-      .all(req.user.id, bookId || null).reverse();
+    const history = bookId
+      ? db.prepare("SELECT role, message FROM ai_chats WHERE user_id=? AND book_id=? ORDER BY created_at DESC LIMIT 10").all(req.user.id, bookId).reverse()
+      : db.prepare("SELECT role, message FROM ai_chats WHERE user_id=? AND book_id IS NULL ORDER BY created_at DESC LIMIT 10").all(req.user.id).reverse();
 
     // Try external AI first, fall back to built-in
     let reply = await callExternalAI(message, bookTitle, history);
