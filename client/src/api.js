@@ -31,8 +31,29 @@ export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);
 export const getChapter = (bookId, chapterNum) => request(`/books/${bookId}/chapters/${chapterNum}`);
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
-export const uploadDocument = (data) =>
-  request("/books/upload", { method: "POST", body: JSON.stringify(data) });
+export async function uploadDocument({ title, author, genre, content, file }) {
+  const token = localStorage.getItem("arn_token");
+  const h = {};
+  if (token) h["Authorization"] = `Bearer ${token}`;
+
+  let body;
+  if (file) {
+    body = new FormData();
+    body.append("file", file);
+    if (title) body.append("title", title);
+    if (author) body.append("author", author);
+    if (genre) body.append("genre", genre);
+    if (content) body.append("content", content);
+  } else {
+    h["Content-Type"] = "application/json";
+    body = JSON.stringify({ title, author, genre, content });
+  }
+
+  const res = await fetch(`${API}/books/upload`, { method: "POST", headers: h, body });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Upload failed");
+  return data;
+}
 
 export const getProgress = () => request("/progress");
 export const updateProgress = (bookId, data) =>

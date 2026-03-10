@@ -30,7 +30,7 @@ export default function Dashboard() {
   const [suggestLoading, setSuggestLoading] = useState(false);
 
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadData, setUploadData] = useState({ title: "", author: "", genre: "", content: "" });
+  const [uploadData, setUploadData] = useState({ title: "", author: "", genre: "", content: "", file: null });
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
 
@@ -169,13 +169,14 @@ export default function Dashboard() {
   }
 
   async function handleUpload() {
-    if (!uploadData.title || !uploadData.content) { setUploadMsg("Title and content are required"); return; }
+    if (!uploadData.title && !uploadData.file) { setUploadMsg("Title or a file is required"); return; }
+    if (!uploadData.content && !uploadData.file) { setUploadMsg("Upload a file or paste content"); return; }
     setUploading(true);
     setUploadMsg("");
     try {
       const res = await api.uploadDocument(uploadData);
       setUploadMsg(`Uploaded! ${res.chaptersCreated} chapter(s) created.`);
-      setUploadData({ title: "", author: "", genre: "", content: "" });
+      setUploadData({ title: "", author: "", genre: "", content: "", file: null });
       await loadData();
       setTimeout(() => { setShowUpload(false); setUploadMsg(""); }, 1500);
     } catch (e) {
@@ -188,11 +189,19 @@ export default function Dashboard() {
   function handleFileRead(e) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      setUploadData(prev => ({ ...prev, content: reader.result, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
-    };
-    reader.readAsText(file);
+    const ext = file.name.split(".").pop().toLowerCase();
+    const binaryTypes = ["pdf", "docx", "doc", "odt"];
+    if (binaryTypes.includes(ext)) {
+      // Binary files — send as file, server will extract text
+      setUploadData(prev => ({ ...prev, file, content: `[${ext.toUpperCase()} file loaded]`, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
+    } else {
+      // Text-based files — read client-side
+      const reader = new FileReader();
+      reader.onload = () => {
+        setUploadData(prev => ({ ...prev, file: null, content: reader.result, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
+      };
+      reader.readAsText(file);
+    }
   }
 
   if (loading) {
@@ -691,8 +700,8 @@ export default function Dashboard() {
                 <label className="block text-sm text-gray-600 mb-1">Upload a file or paste content *</label>
                 <label className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-50 border-2 border-dashed border-gray-300 rounded-xl cursor-pointer hover:border-orange-400 transition-colors mb-2">
                   <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                  <span className="text-sm text-gray-500">{uploadData.content ? "File loaded - change file" : "Choose .txt, .md, or .html file"}</span>
-                  <input type="file" accept=".txt,.md,.html,.text" onChange={handleFileRead} className="hidden" />
+                  <span className="text-sm text-gray-500">{uploadData.content ? "File loaded - change file" : "Choose a file (.pdf, .docx, .doc, .txt, .md, .html, .rtf)"}</span>
+                  <input type="file" accept=".pdf,.docx,.doc,.txt,.md,.html,.rtf,.odt,.text" onChange={handleFileRead} className="hidden" />
                 </label>
                 <textarea value={uploadData.content} onChange={e => setUploadData(prev => ({ ...prev, content: e.target.value }))}
                   rows={6} className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 focus:outline-none focus:border-orange-400 resize-none font-mono"
