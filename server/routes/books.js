@@ -11,14 +11,17 @@ const pdfParse = require("pdf-parse");
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
-// Get all books (only the user's own uploads)
+// Get all books (user's own uploads + admin-uploaded books for everyone)
 router.get("/", authenticateToken, async (req, res) => {
   try {
     const books = (await pool.query(`
       SELECT b.id, b.title, b.author, b.genre, b.cover_url, b.description, 
              b.pages, b.published_year, b.rating,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
-      FROM books b WHERE b.uploaded_by = $1 ORDER BY b.title
+      FROM books b
+      WHERE b.uploaded_by = $1
+         OR b.uploaded_by IN (SELECT id FROM users WHERE role = 'admin')
+      ORDER BY b.title
     `, [req.user.id])).rows;
     res.json({ books });
   } catch (e) {
@@ -27,10 +30,13 @@ router.get("/", authenticateToken, async (req, res) => {
   }
 });
 
-// Get single book (must belong to user)
+// Get single book (must belong to user or be admin-uploaded)
 router.get("/:id", authenticateToken, async (req, res) => {
   try {
-    const book = (await pool.query("SELECT * FROM books WHERE id=$1 AND uploaded_by=$2", [req.params.id, req.user.id])).rows[0];
+    const book = (await pool.query(
+      "SELECT * FROM books WHERE id=$1 AND (uploaded_by=$2 OR uploaded_by IN (SELECT id FROM users WHERE role='admin'))",
+      [req.params.id, req.user.id]
+    )).rows[0];
     if (!book) return res.status(404).json({ error: "Book not found" });
     const chapters = (await pool.query("SELECT chapter_number,title FROM chapters WHERE book_id=$1 ORDER BY chapter_number", [book.id])).rows;
     res.json({ book, chapters });
@@ -52,7 +58,7 @@ router.get("/:id/chapters/:num", authenticateToken, async (req, res) => {
   }
 });
 
-// Search books (local — user's own only)
+// Search books (local — user's own + admin-uploaded)
 router.get("/search/:query", authenticateToken, async (req, res) => {
   try {
     const q = `%${req.params.query}%`;
@@ -60,7 +66,10 @@ router.get("/search/:query", authenticateToken, async (req, res) => {
       SELECT b.id, b.title, b.author, b.genre, b.cover_url, b.description,
              b.pages, b.published_year, b.rating,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
-      FROM books b WHERE b.uploaded_by = $1 AND (b.title ILIKE $2 OR b.author ILIKE $3 OR b.genre ILIKE $4) ORDER BY b.title
+      FROM books b
+      WHERE (b.uploaded_by = $1 OR b.uploaded_by IN (SELECT id FROM users WHERE role = 'admin'))
+        AND (b.title ILIKE $2 OR b.author ILIKE $3 OR b.genre ILIKE $4)
+      ORDER BY b.title
     `, [req.user.id, q, q, q])).rows;
     res.json({ books });
   } catch (e) {
@@ -149,30 +158,20 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
       content = content.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, "").trim();
     }
 
+    // Split content into chapters intelligently
+    let chapters = splitIntoChapters(content);
+
+    // Estimate page count (~250 words per page)
+    const wordCount = content.split(/\s+/).length;
+    const estimatedPages = Math.max(1, Math.round(wordCount / 250));
+
     const coverUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&size=200&name=${encodeURIComponent(title)}`;
     const result = await pool.query(
       "INSERT INTO books (title, author, genre, cover_url, description, pages, published_year, rating, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
-      [title, author || "Unknown", genre || "Personal", coverUrl, "Uploaded by user", 0, new Date().getFullYear(), 0, req.user.id]
+      [title, author || "Unknown", genre || "Personal", coverUrl, `${chapters.length} chapter(s), ~${estimatedPages} pages`, estimatedPages, new Date().getFullYear(), 0, req.user.id]
     );
 
     const bookId = result.rows[0].id;
-
-    // Split content into chapters
-    const chapterSplits = content.split(/\n\s*(?=chapter\s+\d|part\s+\d)/i);
-    let chapters;
-    if (chapterSplits.length > 1) {
-      chapters = chapterSplits.map((text, i) => {
-        const titleMatch = text.match(/^(chapter\s+\d+[^\n]*|part\s+\d+[^\n]*)/i);
-        return { title: titleMatch ? titleMatch[1].trim() : `Chapter ${i + 1}`, content: text.trim() };
-      });
-    } else {
-      const chunkSize = 2000;
-      chapters = [];
-      for (let i = 0; i < content.length; i += chunkSize) {
-        chapters.push({ title: `Section ${chapters.length + 1}`, content: content.slice(i, i + chunkSize).trim() });
-      }
-      if (chapters.length === 0) chapters = [{ title: "Full Text", content: content.trim() }];
-    }
 
     for (let i = 0; i < chapters.length; i++) {
       await pool.query(
