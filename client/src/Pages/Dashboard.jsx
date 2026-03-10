@@ -492,43 +492,78 @@ export default function Dashboard() {
           ) : (
             <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-gray-50">
               <div className="max-w-5xl mx-auto">
-                <div className="flex items-center gap-3 mb-6 md:hidden">
-                  <button className="text-gray-500 hover:text-orange-500" onClick={() => setSidebarOpen(true)}>
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
-                  </button>
-                  <h2 className="text-lg font-bold">Dashboard</h2>
+                <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center gap-3">
+                    <button className="text-gray-500 hover:text-orange-500 md:hidden" onClick={() => setSidebarOpen(true)}>
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                    </button>
+                    <div>
+                      <h2 className="text-lg sm:text-xl font-bold text-gray-900">Welcome back, {user?.name?.split(" ")[0]}</h2>
+                      <p className="text-sm text-gray-500">Here is your reading overview</p>
+                    </div>
+                  </div>
+                  <Link to="/profile" className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-400 transition-colors">
+                    <img src={user?.profilePic} alt="" className="w-6 h-6 rounded-full" />
+                    <span className="text-xs text-gray-600 hidden sm:inline">Profile</span>
+                  </Link>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6 sm:mb-8">
-                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
-                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{myBooks.length}</p>
-                    <p className="text-sm text-gray-500 mt-1">Books in Progress</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-2xl font-bold text-gray-900">{stats?.booksInProgress || myBooks.length}</p>
+                    <p className="text-xs text-gray-500 mt-1">Reading</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
-                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{progress.reduce((a, p) => a + (p.streak_days || 0), 0)}</p>
-                    <p className="text-sm text-gray-500 mt-1">Total Streak Days</p>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-2xl font-bold text-gray-900">{stats?.completedBooks || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Completed</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
-                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{books.length}</p>
-                    <p className="text-sm text-gray-500 mt-1">Books in Library</p>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-2xl font-bold text-orange-500">{stats?.maxStreak || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Best Streak</p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-2xl font-bold text-gray-900">{stats?.totalNotes || 0}</p>
+                    <p className="text-xs text-gray-500 mt-1">Notes</p>
                   </div>
                 </div>
+
+                {stats && (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+                    <div className="bg-white border border-gray-200 rounded-xl p-4">
+                      <p className="text-xs font-medium text-gray-500 mb-2">Average Progress</p>
+                      <div className="flex items-center gap-3">
+                        <div className="flex-1 h-2.5 bg-gray-100 rounded-full">
+                          <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${stats.avgProgress}%` }}></div>
+                        </div>
+                        <span className="text-sm font-bold text-gray-900">{stats.avgProgress}%</span>
+                      </div>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Favorite Genre</p>
+                      <p className="text-lg font-bold text-gray-900">{stats.favoriteGenre}</p>
+                    </div>
+                    <div className="bg-white border border-gray-200 rounded-xl p-4">
+                      <p className="text-xs font-medium text-gray-500 mb-1">Total Streak Days</p>
+                      <p className="text-lg font-bold text-gray-900">{stats.totalStreak}</p>
+                    </div>
+                  </div>
+                )}
 
                 {myBooks.length > 0 && (
-                  <div className="mb-6 sm:mb-8">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Continue Reading</h3>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                  <div className="mb-6">
+                    <h3 className="text-base font-semibold text-gray-900 mb-3">Continue Reading</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                       {myBooks.slice(0, 3).map((p) => (
                         <button
                           key={p.book_id}
                           onClick={() => openBook(p.book)}
                           className="flex gap-4 p-4 bg-white border border-gray-200 rounded-xl hover:border-orange-400 transition-all text-left"
                         >
-                          <img src={p.cover_url} alt="" className="w-14 sm:w-16 h-20 sm:h-24 rounded-lg object-cover" />
+                          <img src={p.cover_url} alt="" className="w-14 h-20 rounded-lg object-cover" />
                           <div className="min-w-0 flex-1">
-                            <p className="font-semibold text-gray-900 truncate">{p.title}</p>
+                            <p className="font-semibold text-sm text-gray-900 truncate">{p.title}</p>
                             <p className="text-xs text-gray-500">{p.author}</p>
-                            <div className="mt-3">
+                            <div className="mt-2">
                               <div className="flex justify-between text-xs text-gray-400 mb-1">
                                 <span>Ch. {p.current_chapter}</span>
                                 <span>{p.progress_percent}%</span>
@@ -537,6 +572,9 @@ export default function Dashboard() {
                                 <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${p.progress_percent}%` }}></div>
                               </div>
                             </div>
+                            {p.streak_days > 0 && (
+                              <p className="text-xs text-orange-500 mt-1 font-medium">{p.streak_days} day streak</p>
+                            )}
                           </div>
                         </button>
                       ))}
@@ -544,14 +582,39 @@ export default function Dashboard() {
                   </div>
                 )}
 
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Browse Library</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 mb-6">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base font-semibold text-gray-900">Reading Suggestions</h3>
+                    <button onClick={getAiSuggestions} disabled={suggestLoading}
+                      className="px-3 py-1.5 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-lg text-xs font-medium transition-colors">
+                      {suggestLoading ? "Thinking..." : suggestions ? "Refresh" : "Get Suggestions"}
+                    </button>
+                  </div>
+                  {suggestions ? (
+                    <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-line">{suggestions}</div>
+                  ) : (
+                    <p className="text-sm text-gray-400">Click the button to get personalized book suggestions based on your reading history</p>
+                  )}
+                </div>
+
+                {stats?.recentActivity?.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6 mb-6">
+                    <h3 className="text-base font-semibold text-gray-900 mb-3">Recent Activity</h3>
+                    <div className="space-y-2">
+                      {stats.recentActivity.map((a, i) => (
+                        <div key={i} className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+                          <span className="text-sm text-gray-700">{a.title}</span>
+                          <span className="text-xs text-gray-400">{a.last_read ? new Date(a.last_read).toLocaleDateString() : ""}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="text-base font-semibold text-gray-900 mb-3">Browse Library</h3>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                   {filteredBooks.map((b) => (
-                    <button
-                      key={b.id}
-                      onClick={() => openBook(b)}
-                      className="group text-left"
-                    >
+                    <button key={b.id} onClick={() => openBook(b)} className="group text-left">
                       <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 border border-gray-200 group-hover:border-orange-400 transition-all">
                         <img src={b.cover_url} alt={b.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       </div>
