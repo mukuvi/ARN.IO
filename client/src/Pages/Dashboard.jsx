@@ -42,10 +42,15 @@ export default function Dashboard() {
       setBooks(booksRes.books);
       setProgress(progRes.progress);
       localStorage.setItem("arn_user", JSON.stringify(meRes.user));
-    } catch {
-      localStorage.removeItem("arn_token");
-      localStorage.removeItem("arn_user");
-      navigate("/login");
+    } catch (err) {
+      if (err.message === "Invalid token" || err.message === "Token expired" || err.message === "No token provided") {
+        localStorage.removeItem("arn_token");
+        localStorage.removeItem("arn_user");
+        navigate("/login");
+      } else {
+        console.error("Dashboard load error:", err);
+        setUser(JSON.parse(localStorage.getItem("arn_user")));
+      }
     } finally {
       setLoading(false);
     }

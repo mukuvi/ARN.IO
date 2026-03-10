@@ -111,9 +111,6 @@ export default function Authenticate() {
           </div>
         </div>
 
-        <p className="text-center text-gray-400 text-xs mt-6">
-          Create any account to get started — no email verification needed
-        </p>
       </div>
     </div>
   );
