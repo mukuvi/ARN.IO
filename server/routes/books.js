@@ -58,6 +58,22 @@ router.get("/:id/chapters/:num", authenticateToken, async (req, res) => {
   }
 });
 
+// Get full book text (for "Read Full Book" mode)
+router.get("/:id/full-text", authenticateToken, async (req, res) => {
+  try {
+    const book = (await pool.query(
+      "SELECT id, title, full_text FROM books WHERE id=$1 AND (uploaded_by=$2 OR uploaded_by IN (SELECT id FROM users WHERE role='admin'))",
+      [req.params.id, req.user.id]
+    )).rows[0];
+    if (!book) return res.status(404).json({ error: "Book not found" });
+    if (!book.full_text) return res.status(404).json({ error: "Full text not available for this book" });
+    res.json({ fullText: book.full_text });
+  } catch (e) {
+    console.error("Get full text:", e);
+    res.status(500).json({ error: "Failed to fetch full text" });
+  }
+});
+
 // Search books (local — user's own + admin-uploaded)
 router.get("/search/:query", authenticateToken, async (req, res) => {
   try {
@@ -111,127 +127,91 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
   }
 });
 
-// ---- Smart chapter splitting ----
-function splitIntoChapters(text) {
-  // Clean up excessive whitespace but preserve paragraph structure
-  text = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+// ---- AI Chapter Summarization ----
+async function summarizeIntoChapters(text, title, author) {
+  const apiKey = process.env.GROQ_API_KEY;
+  if (!apiKey) {
+    // Fallback: simple grouping if no API key
+    console.warn("No GROQ_API_KEY — using basic chapter grouping");
+    return basicChapterGrouping(text);
+  }
 
-  // --- Step 1: Remove Table of Contents ---
-  // TOC is typically a list of short lines with page numbers or chapter names without body text.
-  // Detect and strip it so it doesn't create fake chapters.
-  text = removeTOC(text);
+  // Truncate text for the AI context window (Groq supports ~128k tokens for llama-3.3-70b)
+  // Send up to ~30k chars for summarization to stay well within limits
+  const truncatedText = text.slice(0, 30000);
+  const wordCount = text.split(/\s+/).length;
+  const chapterCount = Math.max(3, Math.min(15, Math.ceil(wordCount / 3000)));
 
-  // --- Step 2: Try explicit "Chapter N" / "Part N" markers ---
-  const chapterPattern = /^[ \t]*(?:chapter|part)\s+(?:\d{1,3}|[ivxlcdm]{1,10}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)[^\n]*/im;
-  let chapters = splitByPattern(text, chapterPattern, 200);
-  if (chapters) return chapters;
+  const prompt = `You are a book analysis assistant. Analyze the following book text and create ${chapterCount} chapter summaries.
 
-  // --- Step 3: Try "Section/Unit/Lesson/Module N" markers ---
-  const sectionPattern = /^[ \t]*(?:section|unit|lesson|module|topic)\s+\d+[^\n]*/im;
-  chapters = splitByPattern(text, sectionPattern, 200);
-  if (chapters) return chapters;
+Book: "${title}" by ${author || "Unknown"}
+Total words: ~${wordCount}
 
-  // --- Step 4: Try standalone numbered headings like "1. Title" or "1 - Title" at line start ---
-  const numberedPattern = /^[ \t]*\d{1,3}[\.\)\-:]\s+[A-Z][^\n]*/m;
-  chapters = splitByPattern(text, numberedPattern, 200);
-  if (chapters) return chapters;
+INSTRUCTIONS:
+- SKIP any table of contents, index, bibliography, acknowledgments, copyright notices, or front/back matter — do NOT summarize those
+- Focus ONLY on the actual substantive content: the core ideas, arguments, narrative sections, and meaningful information
+- Divide that real content into ${chapterCount} logical chapters based on topic flow, themes, or narrative structure
+- For each chapter, provide a clear title and a detailed summary (200-400 words)
+- Summaries should capture the important information: key insights, arguments, data, characters, events, concepts, and takeaways
+- Make summaries comprehensive enough that a reader gets the essential knowledge from each section
 
-  // --- Step 5: Try ALL-CAPS headings (at least 5 chars, on their own line with body text after) ---
-  const capsPattern = /^[ \t]*[A-Z][A-Z\s]{4,}$/m;
-  chapters = splitByPattern(text, capsPattern, 300);
-  if (chapters) return chapters;
+RESPOND IN EXACTLY THIS JSON FORMAT (no extra text):
+[
+  {"title": "Chapter Title Here", "summary": "Detailed summary of this chapter's content..."},
+  {"title": "Another Chapter Title", "summary": "Detailed summary..."}
+]
 
-  // --- Step 6: Group paragraphs into natural-length chapters ---
-  return groupParagraphs(text);
-}
+--- BOOK TEXT ---
+${truncatedText}
+${text.length > 30000 ? "\n[... text continues beyond this excerpt ...]" : ""}`;
 
-// Remove Table of Contents / Index / Contents sections
-function removeTOC(text) {
-  // Match a TOC header line followed by lines that look like TOC entries
-  // TOC entries: short text (chapter names) often followed by dots/spaces and page numbers
-  const tocHeaderRegex = /^[ \t]*(?:table\s+of\s+contents?|contents?|index)\s*$/im;
-  const match = text.match(tocHeaderRegex);
-  if (!match) return text;
+  try {
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: "You are a precise book analysis assistant. Always respond with valid JSON arrays only. No markdown, no backticks, no extra text." },
+          { role: "user", content: prompt }
+        ],
+        temperature: 0.3,
+        max_tokens: 4096,
+      }),
+    });
 
-  const tocStart = match.index;
-  const afterHeader = text.slice(tocStart);
-  const lines = afterHeader.split("\n");
-
-  // Walk lines after the TOC header; TOC entries are typically:
-  //   - short (< 80 chars)
-  //   - may contain dot leaders "....." or page numbers
-  //   - may start with "Chapter" / numbers
-  // Stop when we hit a long paragraph (>120 chars) or a clear chapter start with body
-  let tocEnd = tocStart;
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line === "") { tocEnd += lines[i].length + 1; continue; }
-    const isTocEntry = (
-      line.length < 100 &&
-      (/\.{3,}/.test(line) || /\d+\s*$/.test(line) || line.length < 60)
-    );
-    if (isTocEntry) {
-      tocEnd += lines[i].length + 1;
-    } else {
-      break;
+    const data = await response.json();
+    if (data.error) {
+      console.error("AI summarization error:", data.error.message);
+      return basicChapterGrouping(text);
     }
-  }
 
-  // Remove the TOC block
-  return text.slice(0, tocStart) + "\n" + text.slice(tocEnd);
+    let aiText = data?.choices?.[0]?.message?.content?.trim();
+    if (!aiText) return basicChapterGrouping(text);
+
+    // Strip markdown code fences if the AI wrapped it
+    aiText = aiText.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+    const chapters = JSON.parse(aiText);
+    if (!Array.isArray(chapters) || chapters.length === 0) return basicChapterGrouping(text);
+
+    return chapters.map((ch, i) => ({
+      title: ch.title || `Chapter ${i + 1}`,
+      content: ch.summary || ch.content || "Summary not available."
+    }));
+  } catch (e) {
+    console.error("AI summarization failed:", e.message);
+    return basicChapterGrouping(text);
+  }
 }
 
-// Split text by a heading pattern, returning chapters only if each has real body content
-function splitByPattern(text, pattern, minBodyLength) {
-  // Find all heading positions
-  const headings = [];
-  const globalPattern = new RegExp(pattern.source, pattern.flags.replace("m", "") + "gm");
-  let m;
-  while ((m = globalPattern.exec(text)) !== null) {
-    headings.push({ index: m.index, match: m[0].trim() });
-  }
-
-  if (headings.length < 2) return null;
-
-  // Build chapters between headings
-  const chapters = [];
-  for (let i = 0; i < headings.length; i++) {
-    const start = headings[i].index;
-    const end = i + 1 < headings.length ? headings[i + 1].index : text.length;
-    const chunkText = text.slice(start, end).trim();
-
-    // The title is the heading line; content is everything after it
-    const newlineIdx = chunkText.indexOf("\n");
-    const title = newlineIdx > 0 ? chunkText.slice(0, newlineIdx).trim() : chunkText.slice(0, 80).trim();
-    const body = newlineIdx > 0 ? chunkText.slice(newlineIdx).trim() : "";
-
-    chapters.push({ title: title.replace(/\s+/g, " "), content: chunkText });
-  }
-
-  // Handle any content before the first heading (preface, intro, etc.)
-  if (headings[0].index > 0) {
-    const prefaceText = text.slice(0, headings[0].index).trim();
-    if (prefaceText.length > minBodyLength) {
-      const firstLine = prefaceText.split("\n")[0].trim();
-      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : "Introduction";
-      chapters.unshift({ title, content: prefaceText });
-    }
-  }
-
-  // Verify the splits look real: most chunks should have body text, not just one-liners (TOC entries)
-  const chunksWithBody = chapters.filter(c => c.content.length > minBodyLength);
-  if (chunksWithBody.length < chapters.length * 0.5) return null; // Probably splitting on TOC lines, reject
-
-  // Filter out tiny stub chapters (< 50 chars body)
-  return chapters.filter(c => c.content.length > 50);
-}
-
-// Fallback: group paragraphs into ~5000 word chapters
-function groupParagraphs(text) {
+// Basic fallback: group text into chapters by word count
+function basicChapterGrouping(text) {
   const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
-  if (paragraphs.length <= 1) {
-    return [{ title: "Full Text", content: text.trim() }];
-  }
+  if (paragraphs.length <= 1) return [{ title: "Full Text", content: text.trim() }];
 
   const TARGET_WORDS = 5000;
   const chapters = [];
@@ -252,8 +232,6 @@ function groupParagraphs(text) {
   if (currentContent.trim()) {
     chapters.push({ title: `Chapter ${chapters.length + 1}`, content: currentContent.trim() });
   }
-
-  // If we ended up with just one chapter, that's fine
   return chapters.length > 0 ? chapters : [{ title: "Full Text", content: text.trim() }];
 }
 
@@ -304,20 +282,25 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
       content = content.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, "").trim();
     }
 
-    // Split content into chapters intelligently
-    let chapters = splitIntoChapters(content);
+    // Clean up whitespace
+    content = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
     // Estimate page count (~250 words per page)
     const wordCount = content.split(/\s+/).length;
     const estimatedPages = Math.max(1, Math.round(wordCount / 250));
 
     const coverUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&size=200&name=${encodeURIComponent(title)}`;
+
+    // Store the book with full text
     const result = await pool.query(
-      "INSERT INTO books (title, author, genre, cover_url, description, pages, published_year, rating, uploaded_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
-      [title, author || "Unknown", genre || "Personal", coverUrl, `${chapters.length} chapter(s), ~${estimatedPages} pages`, estimatedPages, new Date().getFullYear(), 0, req.user.id]
+      "INSERT INTO books (title, author, genre, cover_url, description, pages, published_year, rating, uploaded_by, full_text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id",
+      [title, author || "Unknown", genre || "Personal", coverUrl, `~${estimatedPages} pages, ~${wordCount} words`, estimatedPages, new Date().getFullYear(), 0, req.user.id, content]
     );
 
     const bookId = result.rows[0].id;
+
+    // Use AI to summarize into chapters
+    const chapters = await summarizeIntoChapters(content, title, author);
 
     for (let i = 0; i < chapters.length; i++) {
       await pool.query(

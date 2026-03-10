@@ -38,6 +38,9 @@ export default function Dashboard() {
   const [uploadData, setUploadData] = useState({ title: "", author: "", genre: "", content: "", file: null });
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [readingMode, setReadingMode] = useState("summary"); // "summary" or "full"
+  const [fullText, setFullText] = useState(null);
+  const [fullTextLoading, setFullTextLoading] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
@@ -77,6 +80,8 @@ export default function Dashboard() {
     setTab("reading");
     setSidebarOpen(false);
     setChapterLoading(true);
+    setReadingMode("summary");
+    setFullText(null);
     try {
       const res = await api.getBook(book.id);
       setChapters(res.chapters || []);
@@ -383,79 +388,155 @@ export default function Dashboard() {
 
               <div className="flex-1 overflow-hidden">
                 {tab === "reading" && (
-                  <div className="h-full flex flex-col md:flex-row">
-                    <div className="hidden md:block w-52 bg-gray-50 border-r border-gray-200 overflow-y-auto">
-                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide p-3">Chapters</p>
-                      {chapters.map((c) => (
-                        <button
-                          key={c.chapter_number}
-                          onClick={() => goToChapter(c.chapter_number)}
-                          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
-                            currentChapter?.chapter_number === c.chapter_number
-                              ? "bg-white text-orange-500 font-medium border-r-2 border-orange-500"
-                              : "text-gray-500 hover:text-orange-500 hover:bg-white"
-                          }`}
-                        >
-                          Ch. {c.chapter_number}: {c.title}
-                        </button>
-                      ))}
+                  <div className="h-full flex flex-col">
+                    {/* Reading Mode Toggle */}
+                    <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white border-b border-gray-200">
+                      <button
+                        onClick={() => setReadingMode("summary")}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                          readingMode === "summary"
+                            ? "bg-orange-500 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        📚 Summary Chapters
+                      </button>
+                      <button
+                        onClick={async () => {
+                          setReadingMode("full");
+                          if (!fullText && selectedBook) {
+                            setFullTextLoading(true);
+                            try {
+                              const res = await api.getFullText(selectedBook.id);
+                              setFullText(res.fullText);
+                            } catch {
+                              setFullText(null);
+                            } finally {
+                              setFullTextLoading(false);
+                            }
+                          }
+                        }}
+                        className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors ${
+                          readingMode === "full"
+                            ? "bg-orange-500 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        📖 Read Full Book
+                      </button>
+                      <span className="ml-auto text-xs text-gray-400">
+                        {readingMode === "summary" ? "AI-generated summaries" : "Original document"}
+                      </span>
                     </div>
 
-                    <div className="md:hidden flex overflow-x-auto gap-1 px-3 py-2 bg-gray-50 border-b border-gray-200">
-                      {chapters.map((c) => (
-                        <button
-                          key={c.chapter_number}
-                          onClick={() => goToChapter(c.chapter_number)}
-                          className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors ${
-                            currentChapter?.chapter_number === c.chapter_number
-                              ? "bg-orange-500 text-white"
-                              : "bg-white text-gray-500 border border-gray-200"
-                          }`}
-                        >
-                          Ch. {c.chapter_number}
-                        </button>
-                      ))}
-                    </div>
+                    {readingMode === "summary" ? (
+                      /* Summary chapters mode */
+                      <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                        <div className="hidden md:block w-52 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+                          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide p-3">Summary Chapters</p>
+                          {chapters.map((c) => (
+                            <button
+                              key={c.chapter_number}
+                              onClick={() => goToChapter(c.chapter_number)}
+                              className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                                currentChapter?.chapter_number === c.chapter_number
+                                  ? "bg-white text-orange-500 font-medium border-r-2 border-orange-500"
+                                  : "text-gray-500 hover:text-orange-500 hover:bg-white"
+                              }`}
+                            >
+                              {c.chapter_number}. {c.title}
+                            </button>
+                          ))}
+                        </div>
 
-                    <div className="flex-1 overflow-y-auto bg-white">
-                      {chapterLoading ? (
-                        <div className="flex items-center justify-center h-full text-gray-400">
-                          <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
-                          Loading chapter...
-                        </div>
-                      ) : currentChapter ? (
-                        <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
-                          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Chapter {currentChapter.chapter_number}: {currentChapter.title}</h3>
-                          <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
-                          <div className="text-gray-700 leading-relaxed text-sm sm:text-[15px] space-y-4 whitespace-pre-line">
-                            {currentChapter.content}
-                          </div>
-                          <div className="flex items-center justify-between mt-8 sm:mt-12 pt-6 border-t border-gray-200">
+                        <div className="md:hidden flex overflow-x-auto gap-1 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                          {chapters.map((c) => (
                             <button
-                              onClick={() => goToChapter(currentChapter.chapter_number - 1)}
-                              disabled={currentChapter.chapter_number <= 1}
-                              className="px-3 sm:px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm disabled:opacity-30 hover:bg-gray-200 transition-colors"
+                              key={c.chapter_number}
+                              onClick={() => goToChapter(c.chapter_number)}
+                              className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors ${
+                                currentChapter?.chapter_number === c.chapter_number
+                                  ? "bg-orange-500 text-white"
+                                  : "bg-white text-gray-500 border border-gray-200"
+                              }`}
                             >
-                              Previous
+                              Ch. {c.chapter_number}
                             </button>
-                            <span className="text-xs sm:text-sm text-gray-400">
-                              {currentChapter.chapter_number} of {chapters.length}
-                            </span>
-                            <button
-                              onClick={() => goToChapter(currentChapter.chapter_number + 1)}
-                              disabled={currentChapter.chapter_number >= chapters.length}
-                              className="px-3 sm:px-4 py-2 rounded-lg bg-orange-500 text-white text-sm disabled:opacity-30 hover:bg-orange-600 transition-colors"
-                            >
-                              Next
-                            </button>
+                          ))}
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto bg-white">
+                          {chapterLoading ? (
+                            <div className="flex items-center justify-center h-full text-gray-400">
+                              <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                              Loading chapter...
+                            </div>
+                          ) : currentChapter ? (
+                            <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="px-2 py-0.5 bg-orange-100 text-orange-600 text-xs font-medium rounded-full">Summary</span>
+                              </div>
+                              <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{currentChapter.title}</h3>
+                              <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
+                              <div className="prose prose-sm max-w-none text-gray-700 leading-relaxed prose-headings:text-gray-800 prose-p:my-2 prose-ul:my-2 prose-li:my-0.5 prose-strong:text-gray-800">
+                                <ReactMarkdown>{currentChapter.content}</ReactMarkdown>
+                              </div>
+                              <div className="flex items-center justify-between mt-8 sm:mt-12 pt-6 border-t border-gray-200">
+                                <button
+                                  onClick={() => goToChapter(currentChapter.chapter_number - 1)}
+                                  disabled={currentChapter.chapter_number <= 1}
+                                  className="px-3 sm:px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm disabled:opacity-30 hover:bg-gray-200 transition-colors"
+                                >
+                                  Previous
+                                </button>
+                                <span className="text-xs sm:text-sm text-gray-400">
+                                  {currentChapter.chapter_number} of {chapters.length}
+                                </span>
+                                <button
+                                  onClick={() => goToChapter(currentChapter.chapter_number + 1)}
+                                  disabled={currentChapter.chapter_number >= chapters.length}
+                                  className="px-3 sm:px-4 py-2 rounded-lg bg-orange-500 text-white text-sm disabled:opacity-30 hover:bg-orange-600 transition-colors"
+                                >
+                                  Next
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center h-full text-gray-400">
+                              Select a chapter to start reading
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      /* Full book reading mode */
+                      <div className="flex-1 overflow-y-auto bg-white">
+                        {fullTextLoading ? (
+                          <div className="flex items-center justify-center h-64 text-gray-400">
+                            <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                            Loading full book...
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center h-full text-gray-400">
-                          Select a chapter to start reading
-                        </div>
-                      )}
-                    </div>
+                        ) : fullText ? (
+                          <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="px-2 py-0.5 bg-blue-100 text-blue-600 text-xs font-medium rounded-full">Full Text</span>
+                            </div>
+                            <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">{selectedBook?.title}</h3>
+                            <p className="text-sm text-gray-500 mb-1">by {selectedBook?.author}</p>
+                            <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
+                            <div className="text-gray-700 leading-relaxed text-sm sm:text-[15px] whitespace-pre-line">
+                              {fullText}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center h-64 text-gray-400">
+                            <p className="text-lg mb-2">📖</p>
+                            <p className="text-sm">Full text is not available for this book</p>
+                            <p className="text-xs mt-1">Only uploaded documents have the full text saved</p>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

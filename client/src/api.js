@@ -30,6 +30,7 @@ export const getStats = () => request("/auth/stats");
 export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);
 export const getChapter = (bookId, chapterNum) => request(`/books/${bookId}/chapters/${chapterNum}`);
+export const getFullText = (bookId) => request(`/books/${bookId}/full-text`);
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
 export const searchBooksOnline = (query) => request(`/books/search-online/${encodeURIComponent(query)}`);
 export async function uploadDocument({ title, author, genre, content, file }) {
