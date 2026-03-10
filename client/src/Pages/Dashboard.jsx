@@ -534,10 +534,6 @@ export default function Dashboard() {
                       <p className="text-sm text-gray-500">Here is your reading overview</p>
                     </div>
                   </div>
-                  <Link to="/profile" className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-200 rounded-lg hover:border-orange-400 transition-colors">
-                    <img src={user?.profilePic} alt="" className="w-6 h-6 rounded-full" />
-                    <span className="text-xs text-gray-600 hidden sm:inline">Profile</span>
-                  </Link>
                   <button onClick={() => setShowUpload(true)} className="flex items-center gap-2 px-3 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-xs font-medium transition-colors">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
                     <span className="hidden sm:inline">Upload</span>
