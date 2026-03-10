@@ -179,6 +179,16 @@ router.put("/books/:id", async (req, res) => {
 
 router.delete("/books/:id", async (req, res) => {
   try {
+    // Delete the original file from disk if it exists
+    const bookRow = (await pool.query("SELECT file_path FROM books WHERE id=$1", [req.params.id])).rows[0];
+    if (bookRow?.file_path) {
+      const fs = await import("fs");
+      const path = await import("path");
+      const { fileURLToPath } = await import("url");
+      const __dirname = path.dirname(fileURLToPath(import.meta.url));
+      const filePath = path.join(__dirname, "..", "uploads", bookRow.file_path);
+      try { fs.unlinkSync(filePath); } catch {}
+    }
     await pool.query("DELETE FROM ai_chats WHERE book_id=$1", [req.params.id]);
     await pool.query("DELETE FROM notes WHERE book_id=$1", [req.params.id]);
     await pool.query("DELETE FROM reading_sessions WHERE book_id=$1", [req.params.id]);

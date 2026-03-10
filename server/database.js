@@ -107,6 +107,7 @@ export async function initDatabase() {
     try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ"); } catch {}
     try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklist_reason TEXT DEFAULT ''"); } catch {}
     try { await client.query("ALTER TABLE books ADD COLUMN IF NOT EXISTS full_text TEXT DEFAULT ''"); } catch {}
+    try { await client.query("ALTER TABLE books ADD COLUMN IF NOT EXISTS file_path TEXT DEFAULT ''"); } catch {}
 
     // Seed admin only
     const adminCheck = await client.query("SELECT id FROM users WHERE email = $1", ["mukuvi@arnio.com"]);

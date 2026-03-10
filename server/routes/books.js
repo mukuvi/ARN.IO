@@ -1,9 +1,19 @@
 import express from "express";
 import { createRequire } from "module";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import multer from "multer";
 import mammoth from "mammoth";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
+
+// Ensure uploads directory exists
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
@@ -71,6 +81,39 @@ router.get("/:id/full-text", authenticateToken, async (req, res) => {
   } catch (e) {
     console.error("Get full text:", e);
     res.status(500).json({ error: "Failed to fetch full text" });
+  }
+});
+
+// Serve original uploaded file (PDF, DOCX, etc.) for in-browser viewing
+router.get("/:id/file", authenticateToken, async (req, res) => {
+  try {
+    const book = (await pool.query(
+      "SELECT id, file_path FROM books WHERE id=$1 AND (uploaded_by=$2 OR uploaded_by IN (SELECT id FROM users WHERE role='admin'))",
+      [req.params.id, req.user.id]
+    )).rows[0];
+    if (!book || !book.file_path) return res.status(404).json({ error: "Original file not available" });
+
+    const filePath = path.join(UPLOADS_DIR, book.file_path);
+    if (!fs.existsSync(filePath)) return res.status(404).json({ error: "File not found on disk" });
+
+    const ext = path.extname(book.file_path).toLowerCase();
+    const mimeMap = {
+      ".pdf": "application/pdf",
+      ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ".doc": "application/msword",
+      ".txt": "text/plain",
+      ".html": "text/html",
+      ".md": "text/markdown",
+      ".rtf": "application/rtf",
+    };
+    const contentType = mimeMap[ext] || "application/octet-stream";
+
+    res.setHeader("Content-Type", contentType);
+    res.setHeader("Content-Disposition", "inline");
+    fs.createReadStream(filePath).pipe(res);
+  } catch (e) {
+    console.error("Serve file:", e);
+    res.status(500).json({ error: "Failed to serve file" });
   }
 });
 
@@ -298,6 +341,14 @@ router.post("/upload", authenticateToken, upload.single("file"), async (req, res
     );
 
     const bookId = result.rows[0].id;
+
+    // Save original file to disk for in-browser viewing
+    if (file) {
+      const ext = file.originalname.split(".").pop().toLowerCase();
+      const fileName = `${bookId}.${ext}`;
+      fs.writeFileSync(path.join(UPLOADS_DIR, fileName), file.buffer);
+      await pool.query("UPDATE books SET file_path=$1 WHERE id=$2", [fileName, bookId]);
+    }
 
     // Use AI to summarize into chapters
     const chapters = await summarizeIntoChapters(content, title, author);
