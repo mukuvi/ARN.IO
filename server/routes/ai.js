@@ -41,23 +41,43 @@ async function callGemini(message, bookContext, chatHistory) {
 
   contents.push({ role: "user", parts: [{ text: userMessage }] });
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents,
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-      }),
-    }
-  );
+  // Retry up to 3 times with backoff for rate limit errors
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
 
-  const data = await response.json();
-  if (data.error) throw new Error(data.error.message || "Gemini API error");
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("No response from Gemini");
-  return text;
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents,
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+        }),
+      }
+    );
+
+    const data = await response.json();
+    if (data.error) {
+      const code = data.error.code || response.status;
+      const msg = data.error.message || "Gemini API error";
+      if (code === 429) {
+        lastError = new Error("QUOTA_EXCEEDED: Your Gemini API quota is exhausted. Please wait a few minutes or check your billing at https://ai.google.dev");
+        console.warn(`Gemini 429 (attempt ${attempt + 1}/3): ${msg}`);
+        continue; // retry
+      }
+      if (code === 403 || msg.includes("API_KEY")) {
+        throw new Error("API_KEY_INVALID: Your Gemini API key is invalid. Please check GEMINI_API_KEY in server/.env");
+      }
+      throw new Error(msg);
+    }
+
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("No response from Gemini");
+    return text;
+  }
+  throw lastError;
 }
 
 // Chat with AI about a book
