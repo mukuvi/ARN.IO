@@ -1,5 +1,5 @@
 import express from "express";
-import db from "../database.js";
+import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
@@ -8,13 +8,12 @@ const SYSTEM_PROMPT = `You are ARN.IO's intelligent reading assistant. You help 
 summarize chapters, explain concepts, answer questions about literature, and provide reading recommendations. 
 Be concise, helpful, and engaging. When discussing a specific book, reference its themes, characters, and plot points accurately.`;
 
-// Built-in AI responses for common book topics (works without external API key)
-function getBuiltInResponse(message, bookTitle) {
+// Built-in AI responses for common book topics
+async function getBuiltInResponse(message, bookTitle) {
   const msg = message.toLowerCase();
   
-  // Handle book suggestions - return actual library recommendations
   if (msg.includes("suggest") || msg.includes("recommend") || msg.includes("should i read") || msg.includes("what to read")) {
-    const books = db.prepare("SELECT title, author, genre, description FROM books ORDER BY RANDOM() LIMIT 5").all();
+    const books = (await pool.query("SELECT title, author, genre, description FROM books ORDER BY RANDOM() LIMIT 5")).rows;
     if (books.length > 0) {
       let reply = "Here are some books I'd recommend from our library:\n\n";
       books.forEach((b, i) => {
@@ -30,19 +29,19 @@ function getBuiltInResponse(message, bookTitle) {
       `Here's a summary of "${bookTitle}":\n\nThis is a compelling work that explores fundamental themes relevant to its genre. The author masterfully weaves together narrative elements to create an engaging reading experience. The key themes include personal growth, understanding complex systems, and the human condition.\n\nWould you like me to go deeper into any specific aspect?`,
     ],
     theme: [
-      `The major themes in "${bookTitle}" include:\n\n• **Self-discovery** — Characters undergo significant personal transformation\n• **Conflict between tradition and progress** — A recurring tension throughout\n• **The power of knowledge** — Education and learning as transformative forces\n• **Human resilience** — Characters overcoming adversity\n\nWhich theme interests you most?`,
+      `The major themes in "${bookTitle}" include:\n\n- **Self-discovery** - Characters undergo significant personal transformation\n- **Conflict between tradition and progress** - A recurring tension throughout\n- **The power of knowledge** - Education and learning as transformative forces\n- **Human resilience** - Characters overcoming adversity\n\nWhich theme interests you most?`,
     ],
     character: [
-      `The characters in "${bookTitle}" are richly developed:\n\n• The **protagonist** drives the narrative through their personal journey and growth\n• **Supporting characters** provide contrast and depth to the main storyline\n• The **antagonistic forces** create meaningful conflict that propels the plot\n\nWould you like to discuss a specific character?`,
+      `The characters in "${bookTitle}" are richly developed:\n\n- The **protagonist** drives the narrative through their personal journey and growth\n- **Supporting characters** provide contrast and depth to the main storyline\n- The **antagonistic forces** create meaningful conflict that propels the plot\n\nWould you like to discuss a specific character?`,
     ],
     recommend: [
-      `Based on your interest in "${bookTitle}", you might also enjoy:\n\n📚 **Similar in theme:** Works that explore comparable ideas and moral questions\n📚 **Same genre:** Other highly-rated books in this category\n📚 **Same author:** Other works by this author that showcase similar writing style\n\nWould you like more specific recommendations?`,
+      `Based on your interest in "${bookTitle}", you might also enjoy:\n\n**Similar in theme:** Works that explore comparable ideas and moral questions\n**Same genre:** Other highly-rated books in this category\n**Same author:** Other works by this author that showcase similar writing style\n\nWould you like more specific recommendations?`,
     ],
     explain: [
       `Great question! Let me break this down:\n\nThe concept you're asking about relates to one of the core ideas in "${bookTitle}". The author uses this as a vehicle to explore deeper meanings about human nature and society.\n\nThe key takeaway is that understanding comes through both intellectual analysis and emotional engagement with the material.\n\nWant me to elaborate further?`,
     ],
     help: [
-      `I can help you with "${bookTitle}" in several ways:\n\n📖 **Summarize** — Get chapter or full book summaries\n🎭 **Characters** — Analyze character development and relationships\n🎨 **Themes** — Explore major themes and motifs\n💡 **Explain** — Break down complex passages or concepts\n📚 **Recommend** — Find similar books you might enjoy\n✍️ **Discuss** — Have a conversation about the book\n\nWhat would you like to explore?`,
+      `I can help you with "${bookTitle}" in several ways:\n\n**Summarize** - Get chapter or full book summaries\n**Characters** - Analyze character development and relationships\n**Themes** - Explore major themes and motifs\n**Explain** - Break down complex passages or concepts\n**Recommend** - Find similar books you might enjoy\n**Discuss** - Have a conversation about the book\n\nWhat would you like to explore?`,
     ],
   };
 
@@ -57,15 +56,14 @@ function getBuiltInResponse(message, bookTitle) {
   return `That's an interesting question about "${bookTitle}"! Based on the text, I can offer this perspective:\n\nThe work addresses your question through its narrative structure and thematic elements. The author's approach suggests a nuanced view that rewards careful reading and reflection.\n\nFeel free to ask more specific questions and I'll provide targeted insights!`;
 }
 
-// Try external AI API (Google Gemini - free tier available)
+// Try external AI API
 async function callExternalAI(message, bookTitle, chatHistory) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
   
-  if (!apiKey) return null; // Fall back to built-in
+  if (!apiKey) return null;
   
   try {
     if (process.env.GEMINI_API_KEY) {
-      // Google Gemini API (free tier: 15 RPM)
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
         {
@@ -84,7 +82,6 @@ async function callExternalAI(message, bookTitle, chatHistory) {
     }
     
     if (process.env.OPENAI_API_KEY) {
-      // OpenAI API
       const messages = [
         { role: "system", content: `${SYSTEM_PROMPT}\n\nCurrently discussing: "${bookTitle}"` },
         ...chatHistory.slice(-6).map(h => ({ role: h.role, content: h.message })),
@@ -113,30 +110,37 @@ router.post("/chat", authenticateToken, async (req, res) => {
 
     let bookTitle = "your book";
     if (bookId) {
-      const book = db.prepare("SELECT title FROM books WHERE id=?").get(bookId);
+      const book = (await pool.query("SELECT title FROM books WHERE id=$1", [bookId])).rows[0];
       if (book) bookTitle = book.title;
     }
 
     // Save user message
-    db.prepare("INSERT INTO ai_chats (user_id, book_id, role, message) VALUES (?,?,?,?)")
-      .run(req.user.id, bookId || null, "user", message);
+    await pool.query(
+      "INSERT INTO ai_chats (user_id, book_id, role, message) VALUES ($1,$2,$3,$4)",
+      [req.user.id, bookId || null, "user", message]
+    );
 
     // Get chat history
-    const history = bookId
-      ? db.prepare("SELECT role, message FROM ai_chats WHERE user_id=? AND book_id=? ORDER BY created_at DESC LIMIT 10").all(req.user.id, bookId).reverse()
-      : db.prepare("SELECT role, message FROM ai_chats WHERE user_id=? AND book_id IS NULL ORDER BY created_at DESC LIMIT 10").all(req.user.id).reverse();
+    let history;
+    if (bookId) {
+      history = (await pool.query("SELECT role, message FROM ai_chats WHERE user_id=$1 AND book_id=$2 ORDER BY created_at DESC LIMIT 10", [req.user.id, bookId])).rows.reverse();
+    } else {
+      history = (await pool.query("SELECT role, message FROM ai_chats WHERE user_id=$1 AND book_id IS NULL ORDER BY created_at DESC LIMIT 10", [req.user.id])).rows.reverse();
+    }
 
     // Try external AI first, fall back to built-in
     let reply = await callExternalAI(message, bookTitle, history);
     if (!reply) {
-      reply = getBuiltInResponse(message, bookTitle);
+      reply = await getBuiltInResponse(message, bookTitle);
     }
 
     // Save AI response
-    db.prepare("INSERT INTO ai_chats (user_id, book_id, role, message) VALUES (?,?,?,?)")
-      .run(req.user.id, bookId || null, "assistant", reply);
+    await pool.query(
+      "INSERT INTO ai_chats (user_id, book_id, role, message) VALUES ($1,$2,$3,$4)",
+      [req.user.id, bookId || null, "assistant", reply]
+    );
 
-    res.json({ reply, source: reply === getBuiltInResponse(message, bookTitle) ? "built-in" : "ai-api" });
+    res.json({ reply, source: "ai" });
   } catch (e) {
     console.error("AI chat:", e);
     res.status(500).json({ error: "AI chat failed" });
@@ -144,10 +148,9 @@ router.post("/chat", authenticateToken, async (req, res) => {
 });
 
 // Get chat history
-router.get("/history/:bookId", authenticateToken, (req, res) => {
+router.get("/history/:bookId", authenticateToken, async (req, res) => {
   try {
-    const chats = db.prepare("SELECT role, message, created_at FROM ai_chats WHERE user_id=? AND book_id=? ORDER BY created_at ASC")
-      .all(req.user.id, req.params.bookId);
+    const chats = (await pool.query("SELECT role, message, created_at FROM ai_chats WHERE user_id=$1 AND book_id=$2 ORDER BY created_at ASC", [req.user.id, req.params.bookId])).rows;
     res.json({ chats });
   } catch (e) {
     console.error("Chat history:", e);
@@ -156,9 +159,9 @@ router.get("/history/:bookId", authenticateToken, (req, res) => {
 });
 
 // Clear chat history
-router.delete("/history/:bookId", authenticateToken, (req, res) => {
+router.delete("/history/:bookId", authenticateToken, async (req, res) => {
   try {
-    db.prepare("DELETE FROM ai_chats WHERE user_id=? AND book_id=?").run(req.user.id, req.params.bookId);
+    await pool.query("DELETE FROM ai_chats WHERE user_id=$1 AND book_id=$2", [req.user.id, req.params.bookId]);
     res.json({ message: "Chat history cleared" });
   } catch (e) {
     console.error("Clear history:", e);

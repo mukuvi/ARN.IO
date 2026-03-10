@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import { initDatabase } from "./database.js";
 import authRoutes from "./routes/auth.js";
 import bookRoutes from "./routes/books.js";
 import progressRoutes from "./routes/progress.js";
@@ -31,10 +32,19 @@ app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.0.0" });
+  res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.0.0-pg" });
 });
 
-app.listen(PORT, () => {
-  console.log(`✓ ARN.IO Backend running on http://localhost:${PORT}`);
-  console.log(`  AI: ${process.env.GEMINI_API_KEY ? "Gemini" : process.env.OPENAI_API_KEY ? "OpenAI" : "Built-in (set GEMINI_API_KEY or OPENAI_API_KEY for external AI)"}`);
-});
+// Initialize database then start server
+initDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`✓ ARN.IO Backend running on http://localhost:${PORT}`);
+      console.log(`  Database: PostgreSQL`);
+      console.log(`  AI: ${process.env.GEMINI_API_KEY ? "Gemini" : process.env.OPENAI_API_KEY ? "OpenAI" : "Built-in (set GEMINI_API_KEY or OPENAI_API_KEY for external AI)"}`);
+    });
+  })
+  .catch((err) => {
+    console.error("Failed to initialize database:", err);
+    process.exit(1);
+  });

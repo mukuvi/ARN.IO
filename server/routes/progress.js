@@ -1,20 +1,20 @@
 import express from "express";
-import db from "../database.js";
+import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
 
 const router = express.Router();
 
 // Get all progress for user
-router.get("/", authenticateToken, (req, res) => {
+router.get("/", authenticateToken, async (req, res) => {
   try {
-    const progress = db.prepare(`
+    const progress = (await pool.query(`
       SELECT rp.*, b.title, b.author, b.cover_url, b.pages, b.genre, b.rating,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
       FROM reading_progress rp
       JOIN books b ON b.id = rp.book_id
-      WHERE rp.user_id = ?
+      WHERE rp.user_id = $1
       ORDER BY rp.last_read DESC
-    `).all(req.user.id);
+    `, [req.user.id])).rows;
     res.json({ progress });
   } catch (e) {
     console.error("Get progress:", e);
@@ -23,28 +23,32 @@ router.get("/", authenticateToken, (req, res) => {
 });
 
 // Update or create progress
-router.put("/:bookId", authenticateToken, (req, res) => {
+router.put("/:bookId", authenticateToken, async (req, res) => {
   try {
     const { currentChapter, progressPercent } = req.body;
     const bookId = parseInt(req.params.bookId);
     const userId = req.user.id;
 
-    const existing = db.prepare("SELECT id, streak_days FROM reading_progress WHERE user_id=? AND book_id=?").get(userId, bookId);
+    const existing = (await pool.query("SELECT id, streak_days FROM reading_progress WHERE user_id=$1 AND book_id=$2", [userId, bookId])).rows[0];
 
     if (existing) {
-      db.prepare("UPDATE reading_progress SET current_chapter=?, progress_percent=?, streak_days=streak_days+1, last_read=datetime('now') WHERE id=?")
-        .run(currentChapter || 1, progressPercent || 0, existing.id);
+      await pool.query(
+        "UPDATE reading_progress SET current_chapter=$1, progress_percent=$2, streak_days=streak_days+1, last_read=NOW() WHERE id=$3",
+        [currentChapter || 1, progressPercent || 0, existing.id]
+      );
     } else {
-      db.prepare("INSERT INTO reading_progress (user_id, book_id, current_chapter, progress_percent, streak_days) VALUES (?,?,?,?,1)")
-        .run(userId, bookId, currentChapter || 1, progressPercent || 0);
+      await pool.query(
+        "INSERT INTO reading_progress (user_id, book_id, current_chapter, progress_percent, streak_days) VALUES ($1,$2,$3,$4,1)",
+        [userId, bookId, currentChapter || 1, progressPercent || 0]
+      );
     }
 
-    const updated = db.prepare(`
+    const updated = (await pool.query(`
       SELECT rp.*, b.title, b.author, b.cover_url,
              (SELECT COUNT(*) FROM chapters c WHERE c.book_id = b.id) as total_chapters
       FROM reading_progress rp JOIN books b ON b.id=rp.book_id
-      WHERE rp.user_id=? AND rp.book_id=?
-    `).get(userId, bookId);
+      WHERE rp.user_id=$1 AND rp.book_id=$2
+    `, [userId, bookId])).rows[0];
 
     res.json({ message: "Progress updated", progress: updated });
   } catch (e) {
@@ -54,9 +58,9 @@ router.put("/:bookId", authenticateToken, (req, res) => {
 });
 
 // Delete progress (remove book from reading list)
-router.delete("/:bookId", authenticateToken, (req, res) => {
+router.delete("/:bookId", authenticateToken, async (req, res) => {
   try {
-    db.prepare("DELETE FROM reading_progress WHERE user_id=? AND book_id=?").run(req.user.id, parseInt(req.params.bookId));
+    await pool.query("DELETE FROM reading_progress WHERE user_id=$1 AND book_id=$2", [req.user.id, parseInt(req.params.bookId)]);
     res.json({ message: "Removed from reading list" });
   } catch (e) {
     console.error("Delete progress:", e);
