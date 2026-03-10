@@ -111,6 +111,91 @@ router.get("/search-online/:query", authenticateToken, async (req, res) => {
   }
 });
 
+// ---- Smart chapter splitting ----
+function splitIntoChapters(text) {
+  // 1) Try explicit chapter/part markers: "Chapter 1", "CHAPTER ONE", "Part 2", etc.
+  const chapterRegex = /\n\s*(?=(?:chapter|parte?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[^\n]*)/i;
+  let splits = text.split(chapterRegex).filter(s => s.trim());
+  if (splits.length > 1) {
+    return splits.map((chunk, i) => {
+      const titleMatch = chunk.match(/^((?:chapter|parte?)\s+(?:\d+|[ivxlcdm]+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[^\n]*)/i);
+      return {
+        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Chapter ${i + 1}`,
+        content: chunk.trim(),
+      };
+    });
+  }
+
+  // 2) Try numbered section markers: "1.", "1)", "Section 1", "UNIT 1", "Lesson 1", "Module 1"
+  const sectionRegex = /\n\s*(?=(?:section|unit|lesson|module|topic)\s+\d+[^\n]*)/i;
+  splits = text.split(sectionRegex).filter(s => s.trim());
+  if (splits.length > 1) {
+    return splits.map((chunk, i) => {
+      const titleMatch = chunk.match(/^((?:section|unit|lesson|module|topic)\s+\d+[^\n]*)/i);
+      return {
+        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Section ${i + 1}`,
+        content: chunk.trim(),
+      };
+    });
+  }
+
+  // 3) Try all-caps or bold-looking headings on their own line (e.g. "INTRODUCTION", "THE BEGINNING")
+  const headingRegex = /\n\s*(?=(?:[A-Z][A-Z\s]{4,})\s*\n)/;
+  splits = text.split(headingRegex).filter(s => s.trim());
+  if (splits.length >= 3 && splits.length <= 80) {
+    return splits.map((chunk, i) => {
+      const titleMatch = chunk.match(/^([A-Z][A-Z\s]{4,})/);
+      return {
+        title: titleMatch ? titleMatch[1].trim().replace(/\s+/g, " ") : `Section ${i + 1}`,
+        content: chunk.trim(),
+      };
+    });
+  }
+
+  // 4) Try splitting by large paragraph gaps (3+ blank lines) for natural sections
+  splits = text.split(/\n\s*\n\s*\n\s*\n/).filter(s => s.trim());
+  if (splits.length >= 2 && splits.length <= 60) {
+    return splits.map((chunk, i) => {
+      // Use the first line as a title if it's short enough, otherwise generic
+      const firstLine = chunk.trim().split("\n")[0].trim();
+      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Section ${i + 1}`;
+      return { title, content: chunk.trim() };
+    });
+  }
+
+  // 5) Split by double newlines into paragraphs, then group into ~5000 word chapters
+  const paragraphs = text.split(/\n\s*\n/).filter(p => p.trim());
+  if (paragraphs.length <= 1) {
+    return [{ title: "Full Text", content: text.trim() }];
+  }
+
+  const TARGET_WORDS = 5000;
+  const chapters = [];
+  let currentContent = "";
+  let currentWords = 0;
+
+  for (const para of paragraphs) {
+    const paraWords = para.split(/\s+/).length;
+    if (currentWords > 0 && currentWords + paraWords > TARGET_WORDS) {
+      const firstLine = currentContent.trim().split("\n")[0].trim();
+      const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Chapter ${chapters.length + 1}`;
+      chapters.push({ title, content: currentContent.trim() });
+      currentContent = para;
+      currentWords = paraWords;
+    } else {
+      currentContent += (currentContent ? "\n\n" : "") + para;
+      currentWords += paraWords;
+    }
+  }
+  if (currentContent.trim()) {
+    const firstLine = currentContent.trim().split("\n")[0].trim();
+    const title = firstLine.length > 3 && firstLine.length < 80 ? firstLine : `Chapter ${chapters.length + 1}`;
+    chapters.push({ title, content: currentContent.trim() });
+  }
+
+  return chapters.length > 0 ? chapters : [{ title: "Full Text", content: text.trim() }];
+}
+
 // User uploads their own document (supports .txt, .md, .html, .pdf, .docx, .doc, .rtf, .odt)
 router.post("/upload", authenticateToken, upload.single("file"), async (req, res) => {
   try {
