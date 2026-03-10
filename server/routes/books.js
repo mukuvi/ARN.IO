@@ -1,9 +1,12 @@
 import express from "express";
+import { createRequire } from "module";
 import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import multer from "multer";
-import pdfParse from "pdf-parse";
 import mammoth from "mammoth";
+
+const require = createRequire(import.meta.url);
+const pdfParse = require("pdf-parse");
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
