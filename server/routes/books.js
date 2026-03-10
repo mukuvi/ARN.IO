@@ -1,8 +1,12 @@
 import express from "express";
 import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
+import multer from "multer";
+import pdfParse from "pdf-parse";
+import mammoth from "mammoth";
 
 const router = express.Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
 // Get all books
 router.get("/", authenticateToken, async (req, res) => {
@@ -62,11 +66,52 @@ router.get("/search/:query", authenticateToken, async (req, res) => {
   }
 });
 
-// User uploads their own document
-router.post("/upload", authenticateToken, async (req, res) => {
+// User uploads their own document (supports .txt, .md, .html, .pdf, .docx, .doc, .rtf, .odt)
+router.post("/upload", authenticateToken, upload.single("file"), async (req, res) => {
   try {
-    const { title, author, genre, content } = req.body;
+    let { title, author, genre, content } = req.body;
+    const file = req.file;
+
+    // Extract text from uploaded file if present
+    if (file) {
+      const ext = file.originalname.split(".").pop().toLowerCase();
+      const mime = file.mimetype || "";
+
+      if (ext === "pdf" || mime === "application/pdf") {
+        const parsed = await pdfParse(file.buffer);
+        content = parsed.text;
+      } else if (ext === "docx" || mime === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+        const result = await mammoth.extractRawText({ buffer: file.buffer });
+        content = result.value;
+      } else if (ext === "doc" || mime === "application/msword") {
+        // .doc (legacy Word) — mammoth can sometimes handle it, fall back to raw text
+        try {
+          const result = await mammoth.extractRawText({ buffer: file.buffer });
+          content = result.value;
+        } catch {
+          content = file.buffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
+        }
+      } else if (ext === "rtf" || mime === "application/rtf") {
+        // Strip RTF control words for a basic plain-text extraction
+        content = file.buffer.toString("utf-8")
+          .replace(/\{\\[^{}]*\}/g, "")
+          .replace(/\\[a-z]+\d*\s?/gi, "")
+          .replace(/[{}]/g, "")
+          .trim();
+      } else {
+        // Plain text formats: .txt, .md, .html, .odt (raw), etc.
+        content = file.buffer.toString("utf-8");
+      }
+
+      if (!title) title = file.originalname.replace(/\.[^.]+$/, "");
+    }
+
     if (!title || !content) return res.status(400).json({ error: "Title and content are required" });
+
+    // Strip HTML tags if content looks like HTML
+    if (/<[^>]+>/.test(content)) {
+      content = content.replace(/<br\s*\/?>/gi, "\n").replace(/<\/p>/gi, "\n\n").replace(/<[^>]+>/g, "").trim();
+    }
 
     const coverUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&size=200&name=${encodeURIComponent(title)}`;
     const result = await pool.query(

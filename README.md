@@ -1,5 +1,5 @@
 # ARN.IO
-A digital library and reading companion - browse a curated book collection, read chapter-by-chapter in the browser, track your progress, take notes, and chat with an AI assistant about what you're reading.
+A digital library and reading companion - browse a curated book collection, read chapter-by-chapter in the browser, track your progress, take notes and chat with an AI assistant about what you're reading.
 
 ## Features
 
@@ -7,7 +7,7 @@ A digital library and reading companion - browse a curated book collection, read
 - Curated collection of books with full chapter content
 - Chapter-by-chapter in-browser reading
 - Search by title, author, or genre
-- Upload your own documents (`.txt`) - auto-split into chapters
+- Upload your own documents - auto-split into chapters
 
 ### Progress Tracking
 - Per-book progress with current chapter and percent complete
@@ -23,8 +23,3 @@ A digital library and reading companion - browse a curated book collection, read
 - Works out of the box with built-in keyword-matched responses
 - Optionally connect Google Gemini or OpenAI for full LLM-powered conversations
 - Per-book chat history
-
-### User Profiles
-- Registration and login with JWT auth
-- Editable profile (name, bio, avatar)
-- Reading stats dashboard - books in progress, completed, streaks, favorite genre, total reading time
