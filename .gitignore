@@ -36,3 +36,14 @@ dist-ssr/
 # Environment
 .env
 .env.*
+
+# ARN.IO: Never commit secrets or uploads
+server/.env
+server/.env.*
+server/uploads/
+client/.env
+client/.env.*
+.env.local
+uploads/
+
+# WARNING: Do not commit API keys, passwords, or sensitive files!
