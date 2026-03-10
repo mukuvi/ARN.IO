@@ -1,391 +1,512 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import profileData from "../Components/profileData";
 import Header from "../Components/Header";
-import ProfileRead from "../Components/ProfileRead";
+import * as api from "../api";
 
 export default function Dashboard() {
-  const [currentPage, setCurrentPage] = useState(10);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("current");
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
-  const [userData, setUserData] = useState(null);
   const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [books, setBooks] = useState([]);
+  const [progress, setProgress] = useState([]);
+  const [selectedBook, setSelectedBook] = useState(null);
+  const [chapters, setChapters] = useState([]);
+  const [currentChapter, setCurrentChapter] = useState(null);
+  const [tab, setTab] = useState("library");
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [chapterLoading, setChapterLoading] = useState(false);
+
+  const [chatMessages, setChatMessages] = useState([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  const [notes, setNotes] = useState([]);
+  const [noteInput, setNoteInput] = useState("");
 
   useEffect(() => {
-    const storedUser = JSON.parse(localStorage.getItem("userData"));
-    if (!storedUser?.isAuthenticated) {
+    const token = localStorage.getItem("arn_token");
+    if (!token) { navigate("/login"); return; }
+    loadData();
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
+  async function loadData() {
+    try {
+      const [meRes, booksRes, progRes] = await Promise.all([api.getMe(), api.getBooks(), api.getProgress()]);
+      setUser(meRes.user);
+      setBooks(booksRes.books);
+      setProgress(progRes.progress);
+      localStorage.setItem("arn_user", JSON.stringify(meRes.user));
+    } catch {
+      localStorage.removeItem("arn_token");
+      localStorage.removeItem("arn_user");
       navigate("/login");
-    } else {
-      setUserData(storedUser);
+    } finally {
+      setLoading(false);
     }
-  }, [navigate]);
+  }
 
-  const handleLogout = () => {
-    localStorage.removeItem("userData");
-    navigate("/login");
-  };
+  async function openBook(book) {
+    setSelectedBook(book);
+    setTab("reading");
+    setChapterLoading(true);
+    try {
+      const res = await api.getBook(book.id);
+      setChapters(res.chapters || []);
+      const prog = progress.find((p) => p.book_id === book.id);
+      const chapNum = prog?.current_chapter || 1;
+      const chapRes = await api.getChapter(book.id, chapNum);
+      setCurrentChapter(chapRes.chapter);
+      const [notesRes, chatRes] = await Promise.all([api.getBookNotes(book.id), api.getAiHistory(book.id)]);
+      setNotes(notesRes.notes || []);
+      setChatMessages(chatRes.chats || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setChapterLoading(false);
+    }
+    try {
+      await api.updateProgress(book.id, { currentChapter: 1, progressPercent: 5 });
+      const progRes = await api.getProgress();
+      setProgress(progRes.progress);
+    } catch {}
+  }
 
-  const handlePageChange = (direction) => {
-    setCurrentPage((prev) =>
-      direction === "next" ? prev + 1 : Math.max(1, prev - 1)
-    );
-  };
+  async function goToChapter(num) {
+    if (!selectedBook) return;
+    setChapterLoading(true);
+    try {
+      const res = await api.getChapter(selectedBook.id, num);
+      setCurrentChapter(res.chapter);
+      const pct = Math.round((num / (selectedBook.total_chapters || 5)) * 100);
+      await api.updateProgress(selectedBook.id, { currentChapter: num, progressPercent: Math.min(pct, 100) });
+      const progRes = await api.getProgress();
+      setProgress(progRes.progress);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setChapterLoading(false);
+    }
+  }
 
-  const handleUpload = () => {
-    setIsUploading(true);
-    setUploadProgress(0);
+  async function sendChat() {
+    if (!chatInput.trim() || chatLoading) return;
+    const msg = chatInput.trim();
+    setChatInput("");
+    setChatMessages((prev) => [...prev, { role: "user", message: msg }]);
+    setChatLoading(true);
+    try {
+      const res = await api.aiChat(selectedBook?.id, msg);
+      setChatMessages((prev) => [...prev, { role: "assistant", message: res.reply }]);
+    } catch {
+      setChatMessages((prev) => [...prev, { role: "assistant", message: "Sorry, something went wrong. Try again." }]);
+    } finally {
+      setChatLoading(false);
+    }
+  }
 
-    const interval = setInterval(() => {
-      setUploadProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          setIsUploading(false);
-          return 100;
-        }
-        return prev + 10;
-      });
-    }, 300);
-  };
+  async function saveNote() {
+    if (!noteInput.trim() || !selectedBook) return;
+    try {
+      await api.createNote(selectedBook.id, currentChapter?.chapter_number, noteInput.trim(), "note");
+      setNoteInput("");
+      const res = await api.getBookNotes(selectedBook.id);
+      setNotes(res.notes || []);
+    } catch (e) {
+      console.error(e);
+    }
+  }
 
-  const profileDataset = profileData.map((menu, index) => (
-    <ProfileRead
-      key={index}
-      img={menu.img}
-      text={menu.text}
-      className="profilewrap hover:scale-105 transition-transform duration-200"
-    />
-  ));
+  async function removeNote(id) {
+    try {
+      await api.deleteNote(id);
+      setNotes((prev) => prev.filter((n) => n.id !== id));
+    } catch {}
+  }
 
-  if (!userData) {
+  const filteredBooks = books.filter(
+    (b) => b.title.toLowerCase().includes(search.toLowerCase()) || b.author.toLowerCase().includes(search.toLowerCase()) || b.genre.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const myBooks = progress.map((p) => ({ ...p, book: books.find((b) => b.id === p.book_id) })).filter((p) => p.book);
+
+  if (loading) {
     return (
-      <div className="flex justify-center items-center h-screen">
-        Loading...
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <div className="text-gray-500 flex items-center gap-3">
+          <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+          Loading...
+        </div>
       </div>
     );
   }
 
   return (
-    <>
-      <div className="header-get">
-        <Header onLogout={handleLogout} />
-      </div>
+    <div className="min-h-screen bg-white text-gray-900">
+      <Header user={user} />
 
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-stretch p-4 gap-6 min-h-screen">
-        <div className="flex flex-col gap-4 w-full lg:w-[300px]">
-          <h2 className="text-3xl font-semibold text-gray-800">
-            Happy reading {userData.name}
-          </h2>
-          <div className="bg-blue-100 rounded-3xl p-4 flex flex-col shadow-lg">
-            <div className="flex flex-col sm:flex-row justify-around bg-gradient-to-r from-blue-400 to-blue-600 m-4 p-4 rounded-3xl gap-4 text-white">
-              <div className="flex flex-col items-center">
-                <img
-                  src={userData.profilePic}
-                  className="w-[90px] h-[90px] rounded-full border-4 border-white"
-                  alt="User profile"
-                />
-                <p className="mt-2 font-medium">
-                  {new Date().toLocaleDateString("en-US", {
-                    weekday: "long",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}
-                </p>
+      <div className="flex h-[calc(100vh-64px)]">
+        {/* Sidebar */}
+        <aside className="w-72 bg-gray-50 border-r border-gray-200 flex flex-col">
+          <div className="p-4 border-b border-gray-200">
+            <div className="flex items-center gap-3">
+              <img src={user?.profilePic} alt="" className="w-10 h-10 rounded-full" />
+              <div>
+                <p className="font-semibold text-sm text-gray-900">{user?.name}</p>
+                <p className="text-xs text-gray-500">{myBooks.length} books in progress</p>
               </div>
-              <div className="text-center sm:text-left">
-                <h2 className="text-xl font-bold">{userData.name}</h2>
-                <input
-                  type="text"
-                  name="book"
-                  placeholder="Hardy Boys"
-                  className="p-2 rounded-full w-full my-2 text-center bg-black bg-opacity-30 outline-none placeholder-white"
-                />
-                <button className="bg-white text-blue-600 px-4 py-1 rounded-full text-sm font-semibold hover:bg-blue-50 transition-colors">
-                  Continue reading
-                </button>
-              </div>
-            </div>
-            <div>
-              <div className="tabs flex justify-around mb-4">
-                <button
-                  className={`px-4 py-2 rounded-full ${
-                    activeTab === "current"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-200"
-                  }`}
-                  onClick={() => setActiveTab("current")}
-                >
-                  Current
-                </button>
-                <button
-                  className={`px-4 py-2 rounded-full ${
-                    activeTab === "library"
-                      ? "bg-blue-500 text-white"
-                      : "bg-gray-200"
-                  }`}
-                  onClick={() => setActiveTab("library")}
-                >
-                  Library
-                </button>
-              </div>
-              <div className="bg-white p-4 rounded-xl grid grid-cols-2 gap-3">
-                {profileDataset}
-              </div>
-              <button
-                className="flex items-center justify-center mt-4 p-3 text-lg rounded-xl bg-blue-600 text-white w-full hover:bg-blue-700 transition-colors"
-                onClick={handleUpload}
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <>
-                    <div className="w-6 h-6 border-4 border-blue-300 border-t-white rounded-full animate-spin mr-2"></div>
-                    Uploading {uploadProgress}%
-                  </>
-                ) : (
-                  <>
-                    <img
-                      src="https://res.cloudinary.com/dicfffpsh/image/upload/v1729704805/ARN/progress_rrjr4t.png"
-                      className="w-5 h-5 rounded-full mr-2"
-                      alt="Upload icon"
-                    />
-                    Upload files
-                  </>
-                )}
-              </button>
             </div>
           </div>
-        </div>
 
-        {/* Center Panel - Reading Content */}
-        <div className="flex flex-col items-center w-full lg:w-[600px] flex-1">
-          <div className="relative w-full max-w-2xl mb-4">
+          <div className="p-3">
             <input
               type="text"
-              className="p-3 pl-10 rounded-full w-full bg-white shadow-md outline-none focus:ring-2 focus:ring-blue-500"
-              name="search"
-              placeholder="Search book..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search books..."
+              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
             />
-            <svg
-              className="absolute left-3 top-3.5 h-5 w-5 text-gray-400"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              ></path>
-            </svg>
           </div>
 
-          <div className="bg-white shadow-lg h-[70vh] w-full rounded-3xl p-6 flex flex-col justify-between leading-8 overflow-auto">
-            <div className="text-2xl">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="font-bold text-3xl text-gray-800">CHAPTER 2</h2>
-                <div className="flex space-x-2">
-                  <button className="p-2 rounded-full bg-gray-100 hover:bg-gray-200">
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                      />
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                      />
-                    </svg>
+          <div className="flex-1 overflow-y-auto">
+            {myBooks.length > 0 && (
+              <div className="px-3 pb-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 mb-2">Reading</p>
+                {myBooks.map((p) => (
+                  <button
+                    key={p.book_id}
+                    onClick={() => openBook(p.book)}
+                    className={`w-full flex items-center gap-3 p-2 rounded-lg text-left text-sm transition-all mb-1 ${
+                      selectedBook?.id === p.book_id ? "bg-white border border-gray-300 shadow-sm" : "hover:bg-white"
+                    }`}
+                  >
+                    <img src={p.cover_url} alt="" className="w-8 h-12 rounded object-cover flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 truncate">{p.title}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
+                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${p.progress_percent}%` }}></div>
+                        </div>
+                        <span className="text-xs text-gray-400">{p.progress_percent}%</span>
+                      </div>
+                    </div>
                   </button>
-                  <button className="p-2 rounded-full bg-gray-100 hover:bg-gray-200">
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
+                ))}
+              </div>
+            )}
+
+            <div className="px-3 pb-4">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide px-1 mb-2">Library</p>
+              {filteredBooks.map((b) => (
+                <button
+                  key={b.id}
+                  onClick={() => openBook(b)}
+                  className={`w-full flex items-center gap-3 p-2 rounded-lg text-left text-sm transition-all mb-1 ${
+                    selectedBook?.id === b.id ? "bg-white border border-gray-300 shadow-sm" : "hover:bg-white"
+                  }`}
+                >
+                  <img src={b.cover_url} alt="" className="w-8 h-12 rounded object-cover flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900 truncate">{b.title}</p>
+                    <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main className="flex-1 flex flex-col overflow-hidden">
+          {selectedBook ? (
+            <>
+              <div className="border-b border-gray-200 bg-white">
+                <div className="flex items-center justify-between px-6 py-3">
+                  <div>
+                    <h2 className="text-lg font-bold text-gray-900">{selectedBook.title}</h2>
+                    <p className="text-sm text-gray-500">by {selectedBook.author} · {selectedBook.genre}</p>
+                  </div>
+                  <div className="text-sm text-gray-500">{selectedBook.rating}</div>
+                </div>
+                <div className="flex px-6 gap-1">
+                  {[
+                    ["reading", "Read"],
+                    ["chat", "Chat"],
+                    ["notes", "Notes"],
+                  ].map(([key, label]) => (
+                    <button
+                      key={key}
+                      onClick={() => setTab(key)}
+                      className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                        tab === key ? "bg-gray-50 text-orange-500 border-t-2 border-orange-500" : "text-gray-500 hover:text-orange-500"
+                      }`}
                     >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth="2"
-                        d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129"
-                      />
-                    </svg>
-                  </button>
+                      {label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
-              <p className="text-base mt-2 text-gray-700 leading-relaxed">
-                "Blossoms of the Savannah" is a novel by Kenyan author Henry Ole
-                Kulet. It is a poignant story that explores the themes of female
-                circumcision, early marriage, and the struggle for education and
-                empowerment among the Maasai people in Kenya. The story follows
-                the lives of two sisters, Taiyo and Resian, who are determined
-                to pursue education despite cultural obstacles.
-              </p>
-              <p className="text-base mt-4 text-gray-700 leading-relaxed">
-                As the sisters navigate the challenges of their society, they
-                encounter both support and resistance from their community. The
-                novel beautifully captures the tension between tradition and
-                modernity, and the personal costs of challenging deeply rooted
-                cultural practices.
-              </p>
-            </div>
+              <div className="flex-1 overflow-hidden">
+                {tab === "reading" && (
+                  <div className="h-full flex">
+                    <div className="w-52 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+                      <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide p-3">Chapters</p>
+                      {chapters.map((c) => (
+                        <button
+                          key={c.chapter_number}
+                          onClick={() => goToChapter(c.chapter_number)}
+                          className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                            currentChapter?.chapter_number === c.chapter_number
+                              ? "bg-white text-orange-500 font-medium border-r-2 border-orange-500"
+                              : "text-gray-500 hover:text-orange-500 hover:bg-white"
+                          }`}
+                        >
+                          Ch. {c.chapter_number}: {c.title}
+                        </button>
+                      ))}
+                    </div>
 
-            <div className="flex justify-between items-center mt-6 border-t pt-4">
-              <button
-                className="flex items-center text-blue-600 hover:text-blue-800 cursor-pointer"
-                onClick={() => handlePageChange("prev")}
-              >
-                <svg
-                  className="w-5 h-5 mr-1"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M15 19l-7-7 7-7"
-                  />
-                </svg>
-                Previous
-              </button>
-              <div className="flex items-center">
-                <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-                  Page {currentPage}
-                </span>
-              </div>
-              <button
-                className="flex items-center text-blue-600 hover:text-blue-800 cursor-pointer"
-                onClick={() => handlePageChange("next")}
-              >
-                Next
-                <svg
-                  className="w-5 h-5 ml-1"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M9 5l7 7-7 7"
-                  />
-                </svg>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Panel - Book Details */}
-        <div className="w-full lg:w-[300px]">
-          <h2 className="text-3xl font-semibold mb-4 text-gray-800">
-            Hardy Boys
-          </h2>
-          <div className="bg-white rounded-3xl p-6 shadow-lg flex flex-col items-center h-full">
-            <div className="relative w-full mb-4">
-              <img
-                src="https://res.cloudinary.com/dicfffpsh/image/upload/v1729704806/ARN/book_qcojey.jpg"
-                className="w-full h-[40vh] rounded-2xl object-cover hover:scale-105 transition-transform duration-300 shadow-md"
-                alt="Book cover"
-              />
-              <div className="absolute bottom-2 right-2 bg-black bg-opacity-70 text-white px-2 py-1 rounded-full text-xs">
-                📖 Mystery
-              </div>
-            </div>
-
-            <p className="text-lg mt-4 text-gray-700 text-left w-full">
-              A mystery book about two brothers and their friends as they try to
-              investigate strange happenings on skull mountain.
-            </p>
-
-            <div className="w-full mt-6 space-y-4">
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <img
-                    src="https://res.cloudinary.com/dicfffpsh/image/upload/v1729704805/ARN/progress_rrjr4t.png"
-                    className="w-12 h-12"
-                    alt="Progress icon"
-                  />
-                </div>
-                <div className="ml-3 flex-1">
-                  <div className="flex justify-between text-sm text-gray-600">
-                    <span>Progress</span>
-                    <span>65%</span>
+                    <div className="flex-1 overflow-y-auto bg-white">
+                      {chapterLoading ? (
+                        <div className="flex items-center justify-center h-full text-gray-400">
+                          <svg className="animate-spin h-5 w-5 mr-2" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/></svg>
+                          Loading chapter...
+                        </div>
+                      ) : currentChapter ? (
+                        <div className="max-w-3xl mx-auto px-8 py-10">
+                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Chapter {currentChapter.chapter_number}: {currentChapter.title}</h3>
+                          <div className="h-px bg-gray-200 mb-8"></div>
+                          <div className="text-gray-700 leading-relaxed text-[15px] space-y-4 whitespace-pre-line">
+                            {currentChapter.content}
+                          </div>
+                          <div className="flex items-center justify-between mt-12 pt-6 border-t border-gray-200">
+                            <button
+                              onClick={() => goToChapter(currentChapter.chapter_number - 1)}
+                              disabled={currentChapter.chapter_number <= 1}
+                              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm disabled:opacity-30 hover:bg-gray-200 transition-colors"
+                            >
+                              Previous
+                            </button>
+                            <span className="text-sm text-gray-400">
+                              Chapter {currentChapter.chapter_number} of {chapters.length}
+                            </span>
+                            <button
+                              onClick={() => goToChapter(currentChapter.chapter_number + 1)}
+                              disabled={currentChapter.chapter_number >= chapters.length}
+                              className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm disabled:opacity-30 hover:bg-orange-600 transition-colors"
+                            >
+                              Next
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-center h-full text-gray-400">
+                          Select a chapter to start reading
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2.5 mt-1">
-                    <div
-                      className="bg-blue-600 h-2.5 rounded-full"
-                      style={{ width: "65%" }}
-                    ></div>
+                )}
+
+                {tab === "chat" && (
+                  <div className="h-full flex flex-col bg-gray-50">
+                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                      {chatMessages.length === 0 && (
+                        <div className="text-center text-gray-400 py-12">
+                          <p className="font-semibold text-gray-600 text-lg mb-2">Reading Assistant</p>
+                          <p className="text-sm">Ask me anything about &ldquo;{selectedBook.title}&rdquo;</p>
+                          <div className="flex flex-wrap justify-center gap-2 mt-4">
+                            {["Summarize this book", "What are the main themes?", "Tell me about the characters", "What can you help with?"].map((q) => (
+                              <button
+                                key={q}
+                                onClick={() => { setChatInput(q); }}
+                                className="px-3 py-1.5 bg-white hover:bg-gray-100 border border-gray-200 rounded-lg text-xs text-gray-600 transition-colors"
+                              >
+                                {q}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {chatMessages.map((m, i) => (
+                        <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                            m.role === "user"
+                              ? "bg-orange-500 text-white rounded-br-sm"
+                              : "bg-white border border-gray-200 text-gray-700 rounded-bl-sm"
+                          }`}>
+                            <div className="whitespace-pre-line">{m.message}</div>
+                          </div>
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className="flex justify-start">
+                          <div className="bg-white border border-gray-200 px-4 py-3 rounded-2xl rounded-bl-sm">
+                            <div className="flex gap-1">
+                              <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                              <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                              <span className="w-2 h-2 bg-gray-300 rounded-full animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+                    <div className="p-4 border-t border-gray-200 bg-white">
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && sendChat()}
+                          placeholder="Ask about this book..."
+                          className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                        />
+                        <button
+                          onClick={sendChat}
+                          disabled={chatLoading || !chatInput.trim()}
+                          className="px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
+                        >
+                          Send
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {tab === "notes" && (
+                  <div className="h-full flex flex-col bg-gray-50">
+                    <div className="flex-1 overflow-y-auto p-6">
+                      {notes.length === 0 ? (
+                        <div className="text-center text-gray-400 py-12">
+                          <p className="font-semibold text-gray-600 text-lg mb-2">No notes yet</p>
+                          <p className="text-sm">Start taking notes while reading &ldquo;{selectedBook.title}&rdquo;</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3 max-w-2xl mx-auto">
+                          {notes.map((n) => (
+                            <div key={n.id} className="bg-white border border-gray-200 rounded-xl p-4 group">
+                              <div className="flex items-start justify-between">
+                                <div>
+                                  {n.chapter_number && (
+                                    <span className="text-xs text-gray-500 font-medium">Chapter {n.chapter_number}</span>
+                                  )}
+                                  <p className="text-sm text-gray-700 mt-1 whitespace-pre-line">{n.content}</p>
+                                </div>
+                                <button
+                                  onClick={() => removeNote(n.id)}
+                                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all text-lg"
+                                >
+                                  x
+                                </button>
+                              </div>
+                              <p className="text-xs text-gray-400 mt-2">{new Date(n.created_at).toLocaleDateString()}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="p-4 border-t border-gray-200 bg-white">
+                      <div className="flex gap-2 max-w-2xl mx-auto">
+                        <input
+                          type="text"
+                          value={noteInput}
+                          onChange={(e) => setNoteInput(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && saveNote()}
+                          placeholder={`Add a note${currentChapter ? ` for Chapter ${currentChapter.chapter_number}` : ""}...`}
+                          className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                        />
+                        <button
+                          onClick={saveNote}
+                          disabled={!noteInput.trim()}
+                          className="px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-8 bg-gray-50">
+              <div className="max-w-5xl mx-auto">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                    <p className="text-3xl font-bold text-gray-900">{myBooks.length}</p>
+                    <p className="text-sm text-gray-500 mt-1">Books in Progress</p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                    <p className="text-3xl font-bold text-gray-900">{progress.reduce((a, p) => a + (p.streak_days || 0), 0)}</p>
+                    <p className="text-sm text-gray-500 mt-1">Total Streak Days</p>
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
+                    <p className="text-3xl font-bold text-gray-900">{books.length}</p>
+                    <p className="text-sm text-gray-500 mt-1">Books in Library</p>
                   </div>
                 </div>
-              </div>
 
-              <div className="flex items-center">
-                <div className="flex-shrink-0">
-                  <img
-                    src="https://res.cloudinary.com/dicfffpsh/image/upload/v1729704804/ARN/streak_kejq7i.jpg"
-                    className="w-12 h-12"
-                    alt="Streak icon"
-                  />
-                </div>
-                <div className="ml-3">
-                  <div className="text-sm text-gray-600">Streak</div>
-                  <div className="font-semibold">5 Days</div>
+                {myBooks.length > 0 && (
+                  <div className="mb-8">
+                    <h3 className="text-lg font-semibold text-gray-900 mb-4">Continue Reading</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {myBooks.slice(0, 3).map((p) => (
+                        <button
+                          key={p.book_id}
+                          onClick={() => openBook(p.book)}
+                          className="flex gap-4 p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-400 transition-all text-left"
+                        >
+                          <img src={p.cover_url} alt="" className="w-16 h-24 rounded-lg object-cover" />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-semibold text-gray-900 truncate">{p.title}</p>
+                            <p className="text-xs text-gray-500">{p.author}</p>
+                            <div className="mt-3">
+                              <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                <span>Ch. {p.current_chapter}</span>
+                                <span>{p.progress_percent}%</span>
+                              </div>
+                              <div className="h-1.5 bg-gray-200 rounded-full">
+                                <div className="h-full bg-orange-500 rounded-full transition-all" style={{ width: `${p.progress_percent}%` }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Browse Library</h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {filteredBooks.map((b) => (
+                    <button
+                      key={b.id}
+                      onClick={() => openBook(b)}
+                      className="group text-left"
+                    >
+                      <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 border border-gray-200 group-hover:border-gray-400 transition-all">
+                        <img src={b.cover_url} alt={b.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                      </div>
+                      <p className="font-medium text-sm text-gray-900 truncate group-hover:text-gray-600 transition-colors">{b.title}</p>
+                      <p className="text-xs text-gray-500 truncate">{b.author}</p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-xs text-gray-500">{b.rating}</span>
+                        <span className="text-xs text-gray-400 ml-1">{b.genre}</span>
+                      </div>
+                    </button>
+                  ))}
                 </div>
               </div>
-
-              <div className="pt-4 border-t">
-                <h3 className="font-medium text-gray-800 mb-2">Book Details</h3>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="text-gray-600">Author:</div>
-                  <div>Franklin W. Dixon</div>
-                  <div className="text-gray-600">Pages:</div>
-                  <div>256</div>
-                  <div className="text-gray-600">Published:</div>
-                  <div>1927</div>
-                  <div className="text-gray-600">Rating:</div>
-                  <div className="flex items-center">⭐⭐⭐⭐☆</div>
-                </div>
-              </div>
-
-              <button className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg transition-colors flex items-center justify-center">
-                <svg
-                  className="w-5 h-5 mr-2"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                  />
-                </svg>
-                Download
-              </button>
             </div>
-          </div>
-        </div>
+          )}
+        </main>
       </div>
-    </>
+    </div>
   );
 }
