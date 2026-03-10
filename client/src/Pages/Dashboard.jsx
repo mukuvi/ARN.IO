@@ -29,6 +29,10 @@ export default function Dashboard() {
   const [suggestions, setSuggestions] = useState(null);
   const [suggestLoading, setSuggestLoading] = useState(false);
 
+  const [onlineResults, setOnlineResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [streak, setStreak] = useState({ current: 0, longest: 0, totalDays: 0 });
+
   const [showUpload, setShowUpload] = useState(false);
   const [uploadData, setUploadData] = useState({ title: "", author: "", genre: "", content: "", file: null });
   const [uploading, setUploading] = useState(false);
@@ -51,6 +55,7 @@ export default function Dashboard() {
       setBooks(booksRes.books);
       setProgress(progRes.progress);
       setStats(statsRes.stats);
+      if (progRes.streak) setStreak(progRes.streak);
       localStorage.setItem("arn_user", JSON.stringify(meRes.user));
     } catch (err) {
       if (err.message === "Invalid token" || err.message === "Token expired" || err.message === "No token provided") {
@@ -146,8 +151,22 @@ export default function Dashboard() {
   }
 
   const filteredBooks = books.filter(
-    (b) => b.title.toLowerCase().includes(search.toLowerCase()) || b.author.toLowerCase().includes(search.toLowerCase()) || b.genre.toLowerCase().includes(search.toLowerCase())
+    (b) => !search || b.title.toLowerCase().includes(search.toLowerCase()) || b.author.toLowerCase().includes(search.toLowerCase()) || b.genre.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Debounced server + online search
+  useEffect(() => {
+    if (!search.trim() || search.length < 2) { setOnlineResults([]); return; }
+    const timer = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await api.searchBooksOnline(search);
+        setOnlineResults(res.books || []);
+      } catch { setOnlineResults([]); }
+      finally { setSearchLoading(false); }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const myBooks = progress.map((p) => ({ ...p, book: books.find((b) => b.id === p.book_id) })).filter((p) => p.book);
 

@@ -22,14 +22,6 @@ router.post("/register", async (req, res) => {
     );
     const user = result.rows[0];
 
-    const books = await pool.query("SELECT id FROM books LIMIT 3");
-    for (let i = 0; i < books.rows.length; i++) {
-      await pool.query(
-        "INSERT INTO reading_progress (user_id,book_id,current_chapter,progress_percent,streak_days) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
-        [user.id, books.rows[i].id, 1, (i + 1) * 15, i + 1]
-      );
-    }
-
     res.status(201).json({ message: "Account created", token: generateToken(user), user: { id: user.id, name: user.name, email: user.email, profilePic: user.profile_pic, role: user.role, bio: user.bio, lastLogin: user.last_login } });
   } catch (e) {
     console.error("Register:", e);
@@ -146,11 +138,32 @@ router.get("/stats", authenticateToken, async (req, res) => {
 
     const progress = (await pool.query("SELECT progress_percent, streak_days FROM reading_progress WHERE user_id=$1", [userId])).rows;
     const avgProgress = progress.length > 0 ? Math.round(progress.reduce((a, p) => a + parseFloat(p.progress_percent), 0) / progress.length) : 0;
-    const totalStreak = progress.reduce((a, p) => a + (parseInt(p.streak_days) || 0), 0);
-    const maxStreak = progress.length > 0 ? Math.max(...progress.map(p => parseInt(p.streak_days) || 0)) : 0;
     const completedBooks = progress.filter(p => parseFloat(p.progress_percent) >= 100).length;
 
-    const sessions = (await pool.query("SELECT COALESCE(SUM(minutes_read),0) as totalminutes, COALESCE(SUM(pages_read),0) as totalpages FROM reading_sessions WHERE user_id=$1", [userId])).rows[0];
+    // Real streak from daily_streaks table
+    const streakDates = (await pool.query("SELECT DISTINCT streak_date FROM daily_streaks WHERE user_id = $1 ORDER BY streak_date DESC", [userId])).rows;
+    let currentStreak = 0, longestStreak = 0;
+    if (streakDates.length > 0) {
+      const dates = streakDates.map(r => { const d = new Date(r.streak_date); d.setHours(0,0,0,0); return d; });
+      const today = new Date(); today.setHours(0,0,0,0);
+      const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+      if (dates[0].getTime() === today.getTime() || dates[0].getTime() === yesterday.getTime()) {
+        currentStreak = 1;
+        for (let i = 1; i < dates.length; i++) {
+          if ((dates[i-1].getTime() - dates[i].getTime()) / 86400000 === 1) currentStreak++; else break;
+        }
+      }
+      let temp = 1;
+      for (let i = 1; i < dates.length; i++) {
+        if ((dates[i-1].getTime() - dates[i].getTime()) / 86400000 === 1) { temp++; longestStreak = Math.max(longestStreak, temp); }
+        else temp = 1;
+      }
+      longestStreak = Math.max(longestStreak, currentStreak, temp);
+    }
+    const totalStreak = currentStreak;
+    const maxStreak = longestStreak;
+
+    const sessions = (await pool.query("SELECT COALESCE(SUM(minutes_read),0) as totalminutes, COALESCE(SUM(pages_read),0) as totalpages, COALESCE(SUM(chapters_read),0) as totalchapters FROM reading_sessions WHERE user_id=$1", [userId])).rows[0];
 
     const recentActivity = (await pool.query(`
       SELECT rp.last_read, b.title FROM reading_progress rp 
@@ -170,6 +183,8 @@ router.get("/stats", authenticateToken, async (req, res) => {
         avgProgress, totalStreak, maxStreak,
         totalMinutes: parseInt(sessions.totalminutes) || 0,
         totalPages: parseInt(sessions.totalpages) || 0,
+        totalChaptersRead: parseInt(sessions.totalchapters) || 0,
+        totalReadingDays: streakDates.length,
         recentActivity,
         favoriteGenre: favoriteGenreResult.length > 0 ? favoriteGenreResult[0].genre : "None yet"
       }

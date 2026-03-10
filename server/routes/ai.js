@@ -6,100 +6,58 @@ const router = express.Router();
 
 const SYSTEM_PROMPT = `You are ARN.IO's intelligent reading assistant. You help readers understand books, 
 summarize chapters, explain concepts, answer questions about literature, and provide reading recommendations. 
-Be concise, helpful, and engaging. When discussing a specific book, reference its themes, characters, and plot points accurately.`;
+Be concise, helpful, and engaging. When discussing a specific book, reference its actual content, themes, characters, and plot points accurately.
+Format your responses with markdown for readability.`;
 
-// Built-in AI responses for common book topics
-async function getBuiltInResponse(message, bookTitle) {
-  const msg = message.toLowerCase();
-  
-  if (msg.includes("suggest") || msg.includes("recommend") || msg.includes("should i read") || msg.includes("what to read")) {
-    const books = (await pool.query("SELECT title, author, genre, description FROM books ORDER BY RANDOM() LIMIT 5")).rows;
-    if (books.length > 0) {
-      let reply = "Here are some books I'd recommend from our library:\n\n";
-      books.forEach((b, i) => {
-        reply += `${i + 1}. **${b.title}** by ${b.author}\n   Genre: ${b.genre}\n   ${b.description || "A great read worth exploring!"}\n\n`;
+// Call Gemini API with real book context
+async function callGemini(message, bookContext, chatHistory) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY not configured. Please set it in your environment variables.");
+
+  const contents = [];
+
+  // Build conversation history
+  if (chatHistory.length > 0) {
+    for (const h of chatHistory.slice(-8)) {
+      contents.push({
+        role: h.role === "assistant" ? "model" : "user",
+        parts: [{ text: h.message }],
       });
-      reply += "Would you like to know more about any of these?";
-      return reply;
     }
   }
 
-  const responses = {
-    summary: [
-      `Here's a summary of "${bookTitle}":\n\nThis is a compelling work that explores fundamental themes relevant to its genre. The author masterfully weaves together narrative elements to create an engaging reading experience. The key themes include personal growth, understanding complex systems, and the human condition.\n\nWould you like me to go deeper into any specific aspect?`,
-    ],
-    theme: [
-      `The major themes in "${bookTitle}" include:\n\n- **Self-discovery** - Characters undergo significant personal transformation\n- **Conflict between tradition and progress** - A recurring tension throughout\n- **The power of knowledge** - Education and learning as transformative forces\n- **Human resilience** - Characters overcoming adversity\n\nWhich theme interests you most?`,
-    ],
-    character: [
-      `The characters in "${bookTitle}" are richly developed:\n\n- The **protagonist** drives the narrative through their personal journey and growth\n- **Supporting characters** provide contrast and depth to the main storyline\n- The **antagonistic forces** create meaningful conflict that propels the plot\n\nWould you like to discuss a specific character?`,
-    ],
-    recommend: [
-      `Based on your interest in "${bookTitle}", you might also enjoy:\n\n**Similar in theme:** Works that explore comparable ideas and moral questions\n**Same genre:** Other highly-rated books in this category\n**Same author:** Other works by this author that showcase similar writing style\n\nWould you like more specific recommendations?`,
-    ],
-    explain: [
-      `Great question! Let me break this down:\n\nThe concept you're asking about relates to one of the core ideas in "${bookTitle}". The author uses this as a vehicle to explore deeper meanings about human nature and society.\n\nThe key takeaway is that understanding comes through both intellectual analysis and emotional engagement with the material.\n\nWant me to elaborate further?`,
-    ],
-    help: [
-      `I can help you with "${bookTitle}" in several ways:\n\n**Summarize** - Get chapter or full book summaries\n**Characters** - Analyze character development and relationships\n**Themes** - Explore major themes and motifs\n**Explain** - Break down complex passages or concepts\n**Recommend** - Find similar books you might enjoy\n**Discuss** - Have a conversation about the book\n\nWhat would you like to explore?`,
-    ],
-  };
-
-  if (msg.includes("summar")) return responses.summary[0];
-  if (msg.includes("theme") || msg.includes("meaning")) return responses.theme[0];
-  if (msg.includes("character") || msg.includes("who is") || msg.includes("who are")) return responses.character[0];
-  if (msg.includes("similar") || msg.includes("like this")) return responses.recommend[0];
-  if (msg.includes("explain") || msg.includes("why") || msg.includes("how does")) return responses.explain[0];
-  if (msg.includes("help") || msg.includes("can you") || msg.includes("what can")) return responses.help[0];
-  if (msg.includes("about") || msg.includes("what")) return responses.theme[0];
-
-  return `That's an interesting question about "${bookTitle}"! Based on the text, I can offer this perspective:\n\nThe work addresses your question through its narrative structure and thematic elements. The author's approach suggests a nuanced view that rewards careful reading and reflection.\n\nFeel free to ask more specific questions and I'll provide targeted insights!`;
-}
-
-// Try external AI API
-async function callExternalAI(message, bookTitle, chatHistory) {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.OPENAI_API_KEY;
-  
-  if (!apiKey) return null;
-  
-  try {
-    if (process.env.GEMINI_API_KEY) {
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [
-              { role: "user", parts: [{ text: `${SYSTEM_PROMPT}\n\nBook: "${bookTitle}"\n\nUser question: ${message}` }] },
-            ],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 1024 },
-          }),
-        }
-      );
-      const data = await response.json();
-      return data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
+  // Build the current user message with book context
+  let userMessage = SYSTEM_PROMPT + "\n\n";
+  if (bookContext) {
+    userMessage += `--- BOOK INFORMATION ---\nTitle: ${bookContext.title}\nAuthor: ${bookContext.author}\nGenre: ${bookContext.genre}\nDescription: ${bookContext.description || "N/A"}\n\n`;
+    if (bookContext.chapterContent) {
+      userMessage += `--- CURRENT CHAPTER (Ch. ${bookContext.chapterNumber}: ${bookContext.chapterTitle}) ---\n${bookContext.chapterContent.slice(0, 8000)}\n\n`;
     }
-    
-    if (process.env.OPENAI_API_KEY) {
-      const messages = [
-        { role: "system", content: `${SYSTEM_PROMPT}\n\nCurrently discussing: "${bookTitle}"` },
-        ...chatHistory.slice(-6).map(h => ({ role: h.role, content: h.message })),
-        { role: "user", content: message },
-      ];
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: "gpt-3.5-turbo", messages, max_tokens: 1024, temperature: 0.7 }),
-      });
-      const data = await response.json();
-      return data?.choices?.[0]?.message?.content || null;
+    if (bookContext.allChapters) {
+      userMessage += `--- CHAPTER LIST ---\n${bookContext.allChapters.map(c => `Ch. ${c.chapter_number}: ${c.title}`).join("\n")}\n\n`;
     }
-  } catch (e) {
-    console.error("External AI error:", e.message);
-    return null;
   }
-  return null;
+  userMessage += `--- USER QUESTION ---\n${message}`;
+
+  contents.push({ role: "user", parts: [{ text: userMessage }] });
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents,
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
+      }),
+    }
+  );
+
+  const data = await response.json();
+  if (data.error) throw new Error(data.error.message || "Gemini API error");
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("No response from Gemini");
+  return text;
 }
 
 // Chat with AI about a book
@@ -108,10 +66,42 @@ router.post("/chat", authenticateToken, async (req, res) => {
     const { bookId, message } = req.body;
     if (!message) return res.status(400).json({ error: "Message required" });
 
-    let bookTitle = "your book";
+    // Gather book context if a book is selected
+    let bookContext = null;
     if (bookId) {
-      const book = (await pool.query("SELECT title FROM books WHERE id=$1", [bookId])).rows[0];
-      if (book) bookTitle = book.title;
+      const book = (await pool.query("SELECT id, title, author, genre, description FROM books WHERE id=$1", [bookId])).rows[0];
+      if (book) {
+        bookContext = { title: book.title, author: book.author, genre: book.genre, description: book.description };
+
+        // Get chapter list
+        const chapters = (await pool.query("SELECT chapter_number, title FROM chapters WHERE book_id=$1 ORDER BY chapter_number", [bookId])).rows;
+        bookContext.allChapters = chapters;
+
+        // Get current chapter the user is reading
+        const prog = (await pool.query("SELECT current_chapter FROM reading_progress WHERE user_id=$1 AND book_id=$2", [req.user.id, bookId])).rows[0];
+        const chapNum = prog?.current_chapter || 1;
+        const chapter = (await pool.query("SELECT chapter_number, title, content FROM chapters WHERE book_id=$1 AND chapter_number=$2", [bookId, chapNum])).rows[0];
+        if (chapter) {
+          bookContext.chapterNumber = chapter.chapter_number;
+          bookContext.chapterTitle = chapter.title;
+          bookContext.chapterContent = chapter.content;
+        }
+      }
+    } else {
+      // General chat — provide user's library context for recommendations
+      const userBooks = (await pool.query(`
+        SELECT b.title, b.author, b.genre, rp.progress_percent 
+        FROM reading_progress rp JOIN books b ON b.id = rp.book_id 
+        WHERE rp.user_id = $1 ORDER BY rp.last_read DESC LIMIT 10
+      `, [req.user.id])).rows;
+      if (userBooks.length > 0) {
+        bookContext = {
+          title: "General Library Chat",
+          author: "",
+          genre: "",
+          description: `User's reading history:\n${userBooks.map(b => `- "${b.title}" by ${b.author} (${b.genre}, ${b.progress_percent}% read)`).join("\n")}`,
+        };
+      }
     }
 
     // Save user message
@@ -128,10 +118,13 @@ router.post("/chat", authenticateToken, async (req, res) => {
       history = (await pool.query("SELECT role, message FROM ai_chats WHERE user_id=$1 AND book_id IS NULL ORDER BY created_at DESC LIMIT 10", [req.user.id])).rows.reverse();
     }
 
-    // Try external AI first, fall back to built-in
-    let reply = await callExternalAI(message, bookTitle, history);
-    if (!reply) {
-      reply = await getBuiltInResponse(message, bookTitle);
+    // Call Gemini
+    let reply;
+    try {
+      reply = await callGemini(message, bookContext, history);
+    } catch (aiErr) {
+      console.error("Gemini error:", aiErr.message);
+      reply = `Sorry, I couldn't process that right now. ${aiErr.message.includes("API_KEY") ? "The AI API key needs to be configured." : "Please try again."}`;
     }
 
     // Save AI response
@@ -140,7 +133,7 @@ router.post("/chat", authenticateToken, async (req, res) => {
       [req.user.id, bookId || null, "assistant", reply]
     );
 
-    res.json({ reply, source: "ai" });
+    res.json({ reply, source: "gemini" });
   } catch (e) {
     console.error("AI chat:", e);
     res.status(500).json({ error: "AI chat failed" });

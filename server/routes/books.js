@@ -52,7 +52,7 @@ router.get("/:id/chapters/:num", authenticateToken, async (req, res) => {
   }
 });
 
-// Search books
+// Search books (local)
 router.get("/search/:query", authenticateToken, async (req, res) => {
   try {
     const q = `%${req.params.query}%`;
@@ -66,6 +66,39 @@ router.get("/search/:query", authenticateToken, async (req, res) => {
   } catch (e) {
     console.error("Search:", e);
     res.status(500).json({ error: "Search failed" });
+  }
+});
+
+// Search books online via Google Books API
+router.get("/search-online/:query", authenticateToken, async (req, res) => {
+  try {
+    const query = encodeURIComponent(req.params.query);
+    const response = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=12&printType=books`);
+    const data = await response.json();
+    
+    const onlineBooks = (data.items || []).map(item => {
+      const info = item.volumeInfo || {};
+      return {
+        id: `google_${item.id}`,
+        googleId: item.id,
+        title: info.title || "Unknown Title",
+        author: (info.authors || []).join(", ") || "Unknown Author",
+        genre: (info.categories || []).join(", ") || "General",
+        cover_url: info.imageLinks?.thumbnail?.replace("http:", "https:") || `https://ui-avatars.com/api/?background=6b7280&color=fff&bold=true&size=200&name=${encodeURIComponent(info.title || "Book")}`,
+        description: info.description || "",
+        pages: info.pageCount || 0,
+        published_year: info.publishedDate ? parseInt(info.publishedDate) : 0,
+        rating: info.averageRating || 0,
+        previewLink: info.previewLink || null,
+        infoLink: info.infoLink || null,
+        isOnline: true,
+      };
+    });
+
+    res.json({ books: onlineBooks });
+  } catch (e) {
+    console.error("Online search:", e);
+    res.status(500).json({ error: "Online search failed" });
   }
 });
 

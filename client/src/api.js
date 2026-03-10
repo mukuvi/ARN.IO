@@ -31,6 +31,7 @@ export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);
 export const getChapter = (bookId, chapterNum) => request(`/books/${bookId}/chapters/${chapterNum}`);
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
+export const searchBooksOnline = (query) => request(`/books/search-online/${encodeURIComponent(query)}`);
 export async function uploadDocument({ title, author, genre, content, file }) {
   const token = localStorage.getItem("arn_token");
   const h = {};
@@ -56,6 +57,7 @@ export async function uploadDocument({ title, author, genre, content, file }) {
 }
 
 export const getProgress = () => request("/progress");
+export const getStreak = () => request("/progress/streak");
 export const updateProgress = (bookId, data) =>
   request(`/progress/${bookId}`, { method: "PUT", body: JSON.stringify(data) });
 export const removeFromList = (bookId) =>
