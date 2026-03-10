@@ -9,72 +9,72 @@ summarize chapters, explain concepts, answer questions about literature, and pro
 Be concise, helpful, and engaging. When discussing a specific book, reference its actual content, themes, characters, and plot points accurately.
 Format your responses with markdown for readability.`;
 
-// Call Gemini API with real book context
-async function callGemini(message, bookContext, chatHistory) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY not configured. Please set it in your environment variables.");
+// Call DeepSeek API (OpenAI-compatible)
+async function callAI(message, bookContext, chatHistory) {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY not configured. Please set it in your environment variables.");
 
-  const contents = [];
+  const messages = [];
+
+  // System prompt with book context baked in
+  let systemContent = SYSTEM_PROMPT;
+  if (bookContext) {
+    systemContent += `\n\n--- BOOK INFORMATION ---\nTitle: ${bookContext.title}\nAuthor: ${bookContext.author}\nGenre: ${bookContext.genre}\nDescription: ${bookContext.description || "N/A"}`;
+    if (bookContext.allChapters) {
+      systemContent += `\n\n--- CHAPTER LIST ---\n${bookContext.allChapters.map(c => `Ch. ${c.chapter_number}: ${c.title}`).join("\n")}`;
+    }
+    if (bookContext.chapterContent) {
+      systemContent += `\n\n--- CURRENT CHAPTER (Ch. ${bookContext.chapterNumber}: ${bookContext.chapterTitle}) ---\n${bookContext.chapterContent.slice(0, 8000)}`;
+    }
+  }
+  messages.push({ role: "system", content: systemContent });
 
   // Build conversation history
   if (chatHistory.length > 0) {
     for (const h of chatHistory.slice(-8)) {
-      contents.push({
-        role: h.role === "assistant" ? "model" : "user",
-        parts: [{ text: h.message }],
-      });
+      messages.push({ role: h.role === "assistant" ? "assistant" : "user", content: h.message });
     }
   }
 
-  // Build the current user message with book context
-  let userMessage = SYSTEM_PROMPT + "\n\n";
-  if (bookContext) {
-    userMessage += `--- BOOK INFORMATION ---\nTitle: ${bookContext.title}\nAuthor: ${bookContext.author}\nGenre: ${bookContext.genre}\nDescription: ${bookContext.description || "N/A"}\n\n`;
-    if (bookContext.chapterContent) {
-      userMessage += `--- CURRENT CHAPTER (Ch. ${bookContext.chapterNumber}: ${bookContext.chapterTitle}) ---\n${bookContext.chapterContent.slice(0, 8000)}\n\n`;
-    }
-    if (bookContext.allChapters) {
-      userMessage += `--- CHAPTER LIST ---\n${bookContext.allChapters.map(c => `Ch. ${c.chapter_number}: ${c.title}`).join("\n")}\n\n`;
-    }
-  }
-  userMessage += `--- USER QUESTION ---\n${message}`;
-
-  contents.push({ role: "user", parts: [{ text: userMessage }] });
+  // Current user message
+  messages.push({ role: "user", content: message });
 
   // Retry up to 3 times with backoff for rate limit errors
   let lastError;
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
 
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents,
-          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-        }),
-      }
-    );
+    const response = await fetch("https://api.deepseek.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: "deepseek-chat",
+        messages,
+        temperature: 0.7,
+        max_tokens: 2048,
+      }),
+    });
 
     const data = await response.json();
     if (data.error) {
-      const code = data.error.code || response.status;
-      const msg = data.error.message || "Gemini API error";
+      const code = response.status;
+      const msg = data.error.message || "DeepSeek API error";
       if (code === 429) {
-        lastError = new Error("QUOTA_EXCEEDED: Your Gemini API quota is exhausted. Please wait a few minutes or check your billing at https://ai.google.dev");
-        console.warn(`Gemini 429 (attempt ${attempt + 1}/3): ${msg}`);
-        continue; // retry
+        lastError = new Error("QUOTA_EXCEEDED: Rate limited. Please wait a moment and try again.");
+        console.warn(`DeepSeek 429 (attempt ${attempt + 1}/3): ${msg}`);
+        continue;
       }
-      if (code === 403 || msg.includes("API_KEY")) {
-        throw new Error("API_KEY_INVALID: Your Gemini API key is invalid. Please check GEMINI_API_KEY in server/.env");
+      if (code === 401 || code === 403) {
+        throw new Error("API_KEY_INVALID: Your DeepSeek API key is invalid. Please check DEEPSEEK_API_KEY in server/.env");
       }
       throw new Error(msg);
     }
 
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("No response from Gemini");
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text) throw new Error("No response from DeepSeek");
     return text;
   }
   throw lastError;
@@ -138,13 +138,19 @@ router.post("/chat", authenticateToken, async (req, res) => {
       history = (await pool.query("SELECT role, message FROM ai_chats WHERE user_id=$1 AND book_id IS NULL ORDER BY created_at DESC LIMIT 10", [req.user.id])).rows.reverse();
     }
 
-    // Call Gemini
+    // Call DeepSeek AI
     let reply;
     try {
-      reply = await callGemini(message, bookContext, history);
+      reply = await callAI(message, bookContext, history);
     } catch (aiErr) {
-      console.error("Gemini error:", aiErr.message);
-      reply = `Sorry, I couldn't process that right now. ${aiErr.message.includes("API_KEY") ? "The AI API key needs to be configured." : "Please try again."}`;
+      console.error("DeepSeek error:", aiErr.message);
+      if (aiErr.message.includes("QUOTA_EXCEEDED")) {
+        reply = "⏳ The AI service is temporarily rate-limited. Please wait a moment and try again.";
+      } else if (aiErr.message.includes("API_KEY_INVALID") || aiErr.message.includes("not configured")) {
+        reply = "🔑 The AI API key is not configured or invalid. Please set a valid DEEPSEEK_API_KEY in the server's .env file.";
+      } else {
+        reply = `Sorry, I couldn't process that right now. Please try again shortly. (${aiErr.message})`;
+      }
     }
 
     // Save AI response
@@ -153,7 +159,7 @@ router.post("/chat", authenticateToken, async (req, res) => {
       [req.user.id, bookId || null, "assistant", reply]
     );
 
-    res.json({ reply, source: "gemini" });
+    res.json({ reply, source: "deepseek" });
   } catch (e) {
     console.error("AI chat:", e);
     res.status(500).json({ error: "AI chat failed" });

@@ -18,6 +18,8 @@ export default function Admin() {
   const [editBookId, setEditBookId] = useState(null);
   const [chapterForm, setChapterForm] = useState({ title: "", content: "" });
   const [showChapterForm, setShowChapterForm] = useState(null);
+  const [blacklistReason, setBlacklistReason] = useState("");
+  const [showBlacklistModal, setShowBlacklistModal] = useState(null);
 
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
@@ -54,13 +56,26 @@ export default function Admin() {
   }
 
   async function handleDeleteUser(userId, name) {
-    if (!confirm(`Delete user "${name}" and all their data?`)) return;
+    if (!confirm(`Delete user "${name}" and all their data? This cannot be undone.`)) return;
     try {
       await api.adminDeleteUser(userId);
       setMsg("User deleted");
       setUsers((prev) => prev.filter((u) => u.id !== userId));
       const statsRes = await api.adminGetStats();
       setStats(statsRes.stats);
+    } catch (e) {
+      setMsg(e.message);
+    }
+  }
+
+  async function handleBlacklistUser(userId, shouldBlacklist) {
+    try {
+      await api.adminBlacklistUser(userId, shouldBlacklist, blacklistReason);
+      setMsg(shouldBlacklist ? "User has been blacklisted" : "User has been unblacklisted");
+      setShowBlacklistModal(null);
+      setBlacklistReason("");
+      const res = await api.adminGetUsers();
+      setUsers(res.users);
     } catch (e) {
       setMsg(e.message);
     }
@@ -173,9 +188,10 @@ export default function Admin() {
                 { label: "Total Notes", value: stats.totalNotes },
                 { label: "AI Chats", value: stats.totalChats },
                 { label: "Admins", value: stats.totalAdmins },
+                { label: "Blacklisted", value: stats.blacklistedUsers || 0, warn: true },
               ].map((s) => (
-                <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-4">
-                  <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+                <div key={s.label} className={`bg-white border rounded-xl p-4 ${s.warn && s.value > 0 ? "border-red-200" : "border-gray-200"}`}>
+                  <p className={`text-2xl font-bold ${s.warn && s.value > 0 ? "text-red-600" : "text-gray-900"}`}>{s.value}</p>
                   <p className="text-xs text-gray-500 mt-1">{s.label}</p>
                 </div>
               ))}
@@ -217,6 +233,30 @@ export default function Admin() {
 
         {tab === "users" && (
           <div>
+            {/* Blacklist Reason Modal */}
+            {showBlacklistModal && (
+              <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+                <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">Blacklist User</h3>
+                  <p className="text-sm text-gray-500 mb-4">This will suspend the user's account and prevent them from accessing the platform.</p>
+                  <label className="block text-sm text-gray-600 mb-1">Reason (optional)</label>
+                  <textarea
+                    value={blacklistReason}
+                    onChange={(e) => setBlacklistReason(e.target.value)}
+                    rows={3}
+                    placeholder="e.g. Violation of terms of service..."
+                    className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-red-400 resize-none mb-4"
+                  />
+                  <div className="flex gap-3 justify-end">
+                    <button onClick={() => { setShowBlacklistModal(null); setBlacklistReason(""); }}
+                      className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium transition-colors">Cancel</button>
+                    <button onClick={() => handleBlacklistUser(showBlacklistModal, true)}
+                      className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors">Blacklist</button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -225,6 +265,7 @@ export default function Admin() {
                       <th className="text-left px-4 py-3 font-medium text-gray-500">User</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-500 hidden sm:table-cell">Email</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-500">Role</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-500">Status</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Books</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-500 hidden md:table-cell">Joined</th>
                       <th className="text-right px-4 py-3 font-medium text-gray-500">Actions</th>
@@ -232,12 +273,17 @@ export default function Admin() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {users.map((u) => (
-                      <tr key={u.id} className="hover:bg-gray-50">
+                      <tr key={u.id} className={`hover:bg-gray-50 ${u.blacklisted ? "bg-red-50/50" : ""}`}>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2">
-                            <img src={u.profile_pic} alt="" className="w-8 h-8 rounded-full" />
+                            <div className="relative">
+                              <img src={u.profile_pic} alt="" className="w-8 h-8 rounded-full" />
+                              {u.blacklisted && (
+                                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-white" title="Blacklisted" />
+                              )}
+                            </div>
                             <div>
-                              <p className="font-medium text-gray-900">{u.name}</p>
+                              <p className={`font-medium ${u.blacklisted ? "text-red-700" : "text-gray-900"}`}>{u.name}</p>
                               <p className="text-xs text-gray-500 sm:hidden">{u.email}</p>
                             </div>
                           </div>
@@ -251,12 +297,31 @@ export default function Admin() {
                             <option value="admin">Admin</option>
                           </select>
                         </td>
+                        <td className="px-4 py-3">
+                          {u.blacklisted ? (
+                            <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-red-100 text-red-600 font-medium" title={u.blacklist_reason || ""}>
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd"/></svg>
+                              Blacklisted
+                            </span>
+                          ) : (
+                            <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-600 font-medium">Active</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-gray-500 hidden md:table-cell">{u.books_reading}</td>
                         <td className="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">{u.created_at ? new Date(u.created_at).toLocaleDateString() : ""}</td>
                         <td className="px-4 py-3 text-right">
                           {u.id !== user.id && (
-                            <button onClick={() => handleDeleteUser(u.id, u.name)}
-                              className="text-xs text-red-400 hover:text-red-600 transition-colors">Delete</button>
+                            <div className="flex items-center justify-end gap-2">
+                              {u.blacklisted ? (
+                                <button onClick={() => handleBlacklistUser(u.id, false)}
+                                  className="text-xs px-2.5 py-1.5 bg-green-50 hover:bg-green-100 text-green-600 rounded-lg transition-colors font-medium">Unblock</button>
+                              ) : u.role !== "admin" ? (
+                                <button onClick={() => setShowBlacklistModal(u.id)}
+                                  className="text-xs px-2.5 py-1.5 bg-yellow-50 hover:bg-yellow-100 text-yellow-700 rounded-lg transition-colors font-medium">Blacklist</button>
+                              ) : null}
+                              <button onClick={() => handleDeleteUser(u.id, u.name)}
+                                className="text-xs px-2.5 py-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">Delete</button>
+                            </div>
                           )}
                         </td>
                       </tr>

@@ -103,6 +103,9 @@ export async function initDatabase() {
     try { await client.query("ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT NOW()"); } catch {}
     try { await client.query("ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ"); } catch {}
     try { await client.query("ALTER TABLE reading_sessions ADD COLUMN IF NOT EXISTS chapters_read INTEGER DEFAULT 0"); } catch {}
+    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted BOOLEAN DEFAULT false"); } catch {}
+    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ"); } catch {}
+    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklist_reason TEXT DEFAULT ''"); } catch {}
 
     // Seed admin only
     const adminCheck = await client.query("SELECT id FROM users WHERE email = $1", ["mukuvi@arnio.com"]);

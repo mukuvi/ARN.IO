@@ -16,6 +16,7 @@ router.get("/stats", async (req, res) => {
     const totalChats = (await pool.query("SELECT COUNT(*) as count FROM ai_chats")).rows[0].count;
     const totalAdmins = (await pool.query("SELECT COUNT(*) as count FROM users WHERE role='admin'")).rows[0].count;
     const activeReaders = (await pool.query("SELECT COUNT(DISTINCT user_id) as count FROM reading_progress")).rows[0].count;
+    const blacklistedUsers = (await pool.query("SELECT COUNT(*) as count FROM users WHERE blacklisted = true")).rows[0].count;
 
     const recentUsers = (await pool.query("SELECT id,name,email,role,created_at FROM users ORDER BY created_at DESC LIMIT 5")).rows;
     const popularBooks = (await pool.query(`
@@ -24,7 +25,7 @@ router.get("/stats", async (req, res) => {
       GROUP BY b.id, b.title, b.author ORDER BY readers DESC LIMIT 5
     `)).rows;
 
-    res.json({ stats: { totalUsers: parseInt(totalUsers), totalBooks: parseInt(totalBooks), totalChapters: parseInt(totalChapters), totalNotes: parseInt(totalNotes), totalChats: parseInt(totalChats), totalAdmins: parseInt(totalAdmins), activeReaders: parseInt(activeReaders), recentUsers, popularBooks } });
+    res.json({ stats: { totalUsers: parseInt(totalUsers), totalBooks: parseInt(totalBooks), totalChapters: parseInt(totalChapters), totalNotes: parseInt(totalNotes), totalChats: parseInt(totalChats), totalAdmins: parseInt(totalAdmins), activeReaders: parseInt(activeReaders), blacklistedUsers: parseInt(blacklistedUsers), recentUsers, popularBooks } });
   } catch (e) {
     console.error("Admin stats:", e);
     res.status(500).json({ error: "Failed to get admin stats" });
@@ -35,6 +36,7 @@ router.get("/users", async (req, res) => {
   try {
     const users = (await pool.query(`
       SELECT u.id, u.name, u.email, u.role, u.profile_pic, u.bio, u.created_at, u.last_login,
+        COALESCE(u.blacklisted, false) as blacklisted, u.blacklisted_at, COALESCE(u.blacklist_reason, '') as blacklist_reason,
         (SELECT COUNT(*) FROM reading_progress rp WHERE rp.user_id = u.id) as books_reading,
         (SELECT COUNT(*) FROM notes n WHERE n.user_id = u.id) as total_notes
       FROM users u ORDER BY u.created_at DESC
@@ -66,6 +68,31 @@ router.put("/users/:id/role", async (req, res) => {
   }
 });
 
+router.put("/users/:id/blacklist", async (req, res) => {
+  try {
+    const { blacklisted, reason } = req.body;
+    if (typeof blacklisted !== "boolean") return res.status(400).json({ error: "blacklisted must be true or false" });
+
+    if (parseInt(req.params.id) === req.user.id) {
+      return res.status(400).json({ error: "Cannot blacklist your own account" });
+    }
+
+    const targetUser = (await pool.query("SELECT * FROM users WHERE id=$1", [req.params.id])).rows[0];
+    if (!targetUser) return res.status(404).json({ error: "User not found" });
+    if (targetUser.role === "admin") return res.status(400).json({ error: "Cannot blacklist an admin. Remove admin role first." });
+
+    await pool.query(
+      "UPDATE users SET blacklisted=$1, blacklisted_at=$2, blacklist_reason=$3 WHERE id=$4",
+      [blacklisted, blacklisted ? new Date() : null, blacklisted ? (reason || "Suspended by admin") : "", req.params.id]
+    );
+
+    res.json({ message: blacklisted ? "User blacklisted" : "User unblacklisted" });
+  } catch (e) {
+    console.error("Blacklist user:", e);
+    res.status(500).json({ error: "Failed to update blacklist status" });
+  }
+});
+
 router.delete("/users/:id", async (req, res) => {
   try {
     if (parseInt(req.params.id) === req.user.id) {
@@ -77,6 +104,7 @@ router.delete("/users/:id", async (req, res) => {
 
     await pool.query("DELETE FROM ai_chats WHERE user_id=$1", [req.params.id]);
     await pool.query("DELETE FROM notes WHERE user_id=$1", [req.params.id]);
+    await pool.query("DELETE FROM daily_streaks WHERE user_id=$1", [req.params.id]);
     await pool.query("DELETE FROM reading_sessions WHERE user_id=$1", [req.params.id]);
     await pool.query("DELETE FROM reading_progress WHERE user_id=$1", [req.params.id]);
     await pool.query("DELETE FROM users WHERE id=$1", [req.params.id]);

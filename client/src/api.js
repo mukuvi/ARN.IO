@@ -79,6 +79,8 @@ export const adminUpdateRole = (userId, role) =>
   request(`/admin/users/${userId}/role`, { method: "PUT", body: JSON.stringify({ role }) });
 export const adminDeleteUser = (userId) =>
   request(`/admin/users/${userId}`, { method: "DELETE" });
+export const adminBlacklistUser = (userId, blacklisted, reason) =>
+  request(`/admin/users/${userId}/blacklist`, { method: "PUT", body: JSON.stringify({ blacklisted, reason }) });
 export const adminGetBooks = () => request("/admin/books");
 export const adminCreateBook = (data) =>
   request("/admin/books", { method: "POST", body: JSON.stringify(data) });
