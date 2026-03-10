@@ -12,6 +12,7 @@ export default function Profile() {
   const [editName, setEditName] = useState("");
   const [editBio, setEditBio] = useState("");
   const [editPic, setEditPic] = useState("");
+  const [picFile, setPicFile] = useState(null);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -51,7 +52,16 @@ export default function Profile() {
     setSaving(true);
     setMsg("");
     try {
-      const res = await api.updateProfile({ name: editName, bio: editBio, profilePic: editPic });
+      let picToSave = editPic;
+      if (picFile) {
+        picToSave = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = reject;
+          reader.readAsDataURL(picFile);
+        });
+      }
+      const res = await api.updateProfile({ name: editName, bio: editBio, profilePic: picToSave });
       setUser(res.user);
       localStorage.setItem("arn_user", JSON.stringify(res.user));
       if (res.token) localStorage.setItem("arn_token", res.token);
@@ -61,6 +71,21 @@ export default function Profile() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function handlePicFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { setMsg("Image must be under 2MB"); return; }
+    setPicFile(file);
+    const url = URL.createObjectURL(file);
+    setEditPic(url);
+  }
+
+  function logout() {
+    localStorage.removeItem("arn_token");
+    localStorage.removeItem("arn_user");
+    navigate("/");
   }
 
   async function handleChangePassword() {
@@ -202,11 +227,18 @@ export default function Profile() {
                   placeholder="Tell us about yourself..." />
               </div>
               <div>
-                <label className="block text-sm text-gray-600 mb-1">Profile Picture URL</label>
-                <input type="text" value={editPic} onChange={(e) => setEditPic(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
-                  placeholder="https://..." />
-                {editPic && <img src={editPic} alt="Preview" className="w-16 h-16 rounded-full mt-2 object-cover" />}
+                <label className="block text-sm text-gray-600 mb-1">Profile Picture</label>
+                <div className="flex items-center gap-4">
+                  <img src={picFile ? editPic : (editPic || user?.profilePic)} alt="" className="w-16 h-16 rounded-full object-cover border-2 border-gray-200" />
+                  <div className="flex-1">
+                    <label className="inline-flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-sm font-medium cursor-pointer transition-colors">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      Upload Photo
+                      <input type="file" accept="image/*" onChange={handlePicFile} className="hidden" />
+                    </label>
+                    <p className="text-xs text-gray-400 mt-1">JPG, PNG under 2MB</p>
+                  </div>
+                </div>
               </div>
               <button onClick={saveProfile} disabled={saving}
                 className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors">
@@ -241,8 +273,16 @@ export default function Profile() {
         )}
 
         {tab === "danger" && (
-          <div className="bg-white border border-red-200 rounded-xl p-4 sm:p-6">
-            <h3 className="text-lg font-semibold text-red-600 mb-2">Delete Account</h3>
+          <div className="bg-white border border-red-200 rounded-xl p-4 sm:p-6 space-y-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Sign Out</h3>
+              <p className="text-sm text-gray-500 mb-3">Log out of your ARN.IO account on this device.</p>
+              <button onClick={logout} className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium text-sm transition-colors">
+                Logout
+              </button>
+            </div>
+            <div className="border-t border-red-200 pt-6">
+              <h3 className="text-lg font-semibold text-red-600 mb-2">Delete Account</h3>
             <p className="text-sm text-gray-500 mb-4">This will permanently delete your account, all your reading progress, notes, and chat history. This cannot be undone.</p>
             {!deleteConfirm ? (
               <button onClick={() => setDeleteConfirm(true)} className="px-6 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium text-sm transition-colors">

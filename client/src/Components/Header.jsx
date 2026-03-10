@@ -29,13 +29,9 @@ export default function Header({ user }) {
             {isAdmin && (
               <Link to="/mukuvi" className={`text-sm font-medium transition-colors ${location.pathname === "/mukuvi" ? "text-orange-500" : "text-gray-500 hover:text-orange-500"}`}>Admin</Link>
             )}
-            <div className="flex items-center gap-3 ml-2 pl-4 border-l border-gray-200">
-              <Link to="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
-                <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
-                <span className="text-sm text-gray-700 hidden md:inline">{user.name}</span>
-              </Link>
-              <button onClick={logout} className="text-xs text-gray-400 hover:text-red-500 transition-colors">Logout</button>
-            </div>
+            <Link to="/profile" className="ml-2 pl-4 border-l border-gray-200 hover:opacity-80 transition-opacity">
+              <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
+            </Link>
           </>
         ) : (
           <Link to="/login" className="px-4 py-1.5 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors">Sign In</Link>
@@ -62,11 +58,7 @@ export default function Header({ user }) {
                 {isAdmin && (
                   <Link to="/mukuvi" onClick={() => setMenuOpen(false)} className="text-sm font-medium text-gray-700 hover:text-orange-500">Admin Panel</Link>
                 )}
-                <div className="flex items-center gap-3 pt-3 border-t border-gray-200">
-                  <img src={user.profilePic} alt="" className="w-8 h-8 rounded-full" />
-                  <span className="text-sm text-gray-700">{user.name}</span>
-                  <button onClick={() => { logout(); setMenuOpen(false); }} className="ml-auto text-xs text-red-500">Logout</button>
-                </div>
+                <button onClick={() => { logout(); setMenuOpen(false); }} className="text-sm font-medium text-red-500 hover:text-red-600 pt-3 border-t border-gray-200 text-left">Logout</button>
               </>
             ) : (
               <Link to="/login" onClick={() => setMenuOpen(false)} className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-medium text-center">Sign In</Link>
