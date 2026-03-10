@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [chapterLoading, setChapterLoading] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
@@ -53,6 +54,7 @@ export default function Dashboard() {
   async function openBook(book) {
     setSelectedBook(book);
     setTab("reading");
+    setSidebarOpen(false);
     setChapterLoading(true);
     try {
       const res = await api.getBook(book.id);
@@ -149,16 +151,24 @@ export default function Dashboard() {
     <div className="min-h-screen bg-white text-gray-900">
       <Header user={user} />
 
-      <div className="flex h-[calc(100vh-64px)]">
-        {/* Sidebar */}
-        <aside className="w-72 bg-gray-50 border-r border-gray-200 flex flex-col">
+      <div className="flex h-[calc(100vh-64px)] relative">
+        {sidebarOpen && (
+          <div className="fixed inset-0 bg-black/30 z-30 md:hidden" onClick={() => setSidebarOpen(false)} />
+        )}
+
+        <aside className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 fixed md:static z-40 w-72 h-[calc(100vh-64px)] bg-gray-50 border-r border-gray-200 flex flex-col transition-transform duration-200`}>
           <div className="p-4 border-b border-gray-200">
-            <div className="flex items-center gap-3">
-              <img src={user?.profilePic} alt="" className="w-10 h-10 rounded-full" />
-              <div>
-                <p className="font-semibold text-sm text-gray-900">{user?.name}</p>
-                <p className="text-xs text-gray-500">{myBooks.length} books in progress</p>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <img src={user?.profilePic} alt="" className="w-10 h-10 rounded-full" />
+                <div>
+                  <p className="font-semibold text-sm text-gray-900">{user?.name}</p>
+                  <p className="text-xs text-gray-500">{myBooks.length} books in progress</p>
+                </div>
               </div>
+              <button className="md:hidden text-gray-400 hover:text-gray-600 text-xl" onClick={() => setSidebarOpen(false)}>
+                &times;
+              </button>
             </div>
           </div>
 
@@ -168,7 +178,7 @@ export default function Dashboard() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search books..."
-              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+              className="w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400"
             />
           </div>
 
@@ -189,7 +199,7 @@ export default function Dashboard() {
                       <p className="font-medium text-gray-900 truncate">{p.title}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-                        <div className="h-full bg-orange-500 rounded-full" style={{ width: `${p.progress_percent}%` }}></div>
+                          <div className="h-full bg-orange-500 rounded-full" style={{ width: `${p.progress_percent}%` }}></div>
                         </div>
                         <span className="text-xs text-gray-400">{p.progress_percent}%</span>
                       </div>
@@ -220,19 +230,21 @@ export default function Dashboard() {
           </div>
         </aside>
 
-        {/* Main Content */}
         <main className="flex-1 flex flex-col overflow-hidden">
           {selectedBook ? (
             <>
               <div className="border-b border-gray-200 bg-white">
-                <div className="flex items-center justify-between px-6 py-3">
-                  <div>
-                    <h2 className="text-lg font-bold text-gray-900">{selectedBook.title}</h2>
-                    <p className="text-sm text-gray-500">by {selectedBook.author} · {selectedBook.genre}</p>
+                <div className="flex items-center gap-3 px-4 sm:px-6 py-3">
+                  <button className="md:hidden text-gray-500 hover:text-orange-500" onClick={() => setSidebarOpen(true)}>
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <h2 className="text-base sm:text-lg font-bold text-gray-900 truncate">{selectedBook.title}</h2>
+                    <p className="text-xs sm:text-sm text-gray-500 truncate">by {selectedBook.author}</p>
                   </div>
-                  <div className="text-sm text-gray-500">{selectedBook.rating}</div>
+                  <div className="text-sm text-gray-500 hidden sm:block">{selectedBook.genre}</div>
                 </div>
-                <div className="flex px-6 gap-1">
+                <div className="flex px-4 sm:px-6 gap-1 overflow-x-auto">
                   {[
                     ["reading", "Read"],
                     ["chat", "Chat"],
@@ -241,7 +253,7 @@ export default function Dashboard() {
                     <button
                       key={key}
                       onClick={() => setTab(key)}
-                      className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+                      className={`px-3 sm:px-4 py-2 text-sm font-medium rounded-t-lg transition-colors whitespace-nowrap ${
                         tab === key ? "bg-gray-50 text-orange-500 border-t-2 border-orange-500" : "text-gray-500 hover:text-orange-500"
                       }`}
                     >
@@ -253,8 +265,8 @@ export default function Dashboard() {
 
               <div className="flex-1 overflow-hidden">
                 {tab === "reading" && (
-                  <div className="h-full flex">
-                    <div className="w-52 bg-gray-50 border-r border-gray-200 overflow-y-auto">
+                  <div className="h-full flex flex-col md:flex-row">
+                    <div className="hidden md:block w-52 bg-gray-50 border-r border-gray-200 overflow-y-auto">
                       <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide p-3">Chapters</p>
                       {chapters.map((c) => (
                         <button
@@ -271,6 +283,22 @@ export default function Dashboard() {
                       ))}
                     </div>
 
+                    <div className="md:hidden flex overflow-x-auto gap-1 px-3 py-2 bg-gray-50 border-b border-gray-200">
+                      {chapters.map((c) => (
+                        <button
+                          key={c.chapter_number}
+                          onClick={() => goToChapter(c.chapter_number)}
+                          className={`px-3 py-1.5 text-xs rounded-lg whitespace-nowrap transition-colors ${
+                            currentChapter?.chapter_number === c.chapter_number
+                              ? "bg-orange-500 text-white"
+                              : "bg-white text-gray-500 border border-gray-200"
+                          }`}
+                        >
+                          Ch. {c.chapter_number}
+                        </button>
+                      ))}
+                    </div>
+
                     <div className="flex-1 overflow-y-auto bg-white">
                       {chapterLoading ? (
                         <div className="flex items-center justify-center h-full text-gray-400">
@@ -278,27 +306,27 @@ export default function Dashboard() {
                           Loading chapter...
                         </div>
                       ) : currentChapter ? (
-                        <div className="max-w-3xl mx-auto px-8 py-10">
-                          <h3 className="text-2xl font-bold text-gray-900 mb-2">Chapter {currentChapter.chapter_number}: {currentChapter.title}</h3>
-                          <div className="h-px bg-gray-200 mb-8"></div>
-                          <div className="text-gray-700 leading-relaxed text-[15px] space-y-4 whitespace-pre-line">
+                        <div className="max-w-3xl mx-auto px-4 sm:px-8 py-6 sm:py-10">
+                          <h3 className="text-xl sm:text-2xl font-bold text-gray-900 mb-2">Chapter {currentChapter.chapter_number}: {currentChapter.title}</h3>
+                          <div className="h-px bg-gray-200 mb-6 sm:mb-8"></div>
+                          <div className="text-gray-700 leading-relaxed text-sm sm:text-[15px] space-y-4 whitespace-pre-line">
                             {currentChapter.content}
                           </div>
-                          <div className="flex items-center justify-between mt-12 pt-6 border-t border-gray-200">
+                          <div className="flex items-center justify-between mt-8 sm:mt-12 pt-6 border-t border-gray-200">
                             <button
                               onClick={() => goToChapter(currentChapter.chapter_number - 1)}
                               disabled={currentChapter.chapter_number <= 1}
-                              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm disabled:opacity-30 hover:bg-gray-200 transition-colors"
+                              className="px-3 sm:px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm disabled:opacity-30 hover:bg-gray-200 transition-colors"
                             >
                               Previous
                             </button>
-                            <span className="text-sm text-gray-400">
-                              Chapter {currentChapter.chapter_number} of {chapters.length}
+                            <span className="text-xs sm:text-sm text-gray-400">
+                              {currentChapter.chapter_number} of {chapters.length}
                             </span>
                             <button
                               onClick={() => goToChapter(currentChapter.chapter_number + 1)}
                               disabled={currentChapter.chapter_number >= chapters.length}
-                              className="px-4 py-2 rounded-lg bg-orange-500 text-white text-sm disabled:opacity-30 hover:bg-orange-600 transition-colors"
+                              className="px-3 sm:px-4 py-2 rounded-lg bg-orange-500 text-white text-sm disabled:opacity-30 hover:bg-orange-600 transition-colors"
                             >
                               Next
                             </button>
@@ -315,13 +343,13 @@ export default function Dashboard() {
 
                 {tab === "chat" && (
                   <div className="h-full flex flex-col bg-gray-50">
-                    <div className="flex-1 overflow-y-auto p-6 space-y-4">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-4">
                       {chatMessages.length === 0 && (
-                        <div className="text-center text-gray-400 py-12">
+                        <div className="text-center text-gray-400 py-8 sm:py-12">
                           <p className="font-semibold text-gray-600 text-lg mb-2">Reading Assistant</p>
-                          <p className="text-sm">Ask me anything about &ldquo;{selectedBook.title}&rdquo;</p>
+                          <p className="text-sm">Ask me anything about "{selectedBook.title}"</p>
                           <div className="flex flex-wrap justify-center gap-2 mt-4">
-                            {["Summarize this book", "What are the main themes?", "Tell me about the characters", "What can you help with?"].map((q) => (
+                            {["Summarize this book", "What are the main themes?", "Tell me about the characters"].map((q) => (
                               <button
                                 key={q}
                                 onClick={() => { setChatInput(q); }}
@@ -335,7 +363,7 @@ export default function Dashboard() {
                       )}
                       {chatMessages.map((m, i) => (
                         <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
+                          <div className={`max-w-[90%] sm:max-w-[80%] px-4 py-3 rounded-2xl text-sm leading-relaxed ${
                             m.role === "user"
                               ? "bg-orange-500 text-white rounded-br-sm"
                               : "bg-white border border-gray-200 text-gray-700 rounded-bl-sm"
@@ -357,7 +385,7 @@ export default function Dashboard() {
                       )}
                       <div ref={chatEndRef} />
                     </div>
-                    <div className="p-4 border-t border-gray-200 bg-white">
+                    <div className="p-3 sm:p-4 border-t border-gray-200 bg-white">
                       <div className="flex gap-2">
                         <input
                           type="text"
@@ -365,12 +393,12 @@ export default function Dashboard() {
                           onChange={(e) => setChatInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && sendChat()}
                           placeholder="Ask about this book..."
-                          className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                          className="flex-1 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400"
                         />
                         <button
                           onClick={sendChat}
                           disabled={chatLoading || !chatInput.trim()}
-                          className="px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
+                          className="px-4 sm:px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
                         >
                           Send
                         </button>
@@ -381,11 +409,11 @@ export default function Dashboard() {
 
                 {tab === "notes" && (
                   <div className="h-full flex flex-col bg-gray-50">
-                    <div className="flex-1 overflow-y-auto p-6">
+                    <div className="flex-1 overflow-y-auto p-4 sm:p-6">
                       {notes.length === 0 ? (
-                        <div className="text-center text-gray-400 py-12">
+                        <div className="text-center text-gray-400 py-8 sm:py-12">
                           <p className="font-semibold text-gray-600 text-lg mb-2">No notes yet</p>
-                          <p className="text-sm">Start taking notes while reading &ldquo;{selectedBook.title}&rdquo;</p>
+                          <p className="text-sm">Start taking notes while reading "{selectedBook.title}"</p>
                         </div>
                       ) : (
                         <div className="space-y-3 max-w-2xl mx-auto">
@@ -400,7 +428,7 @@ export default function Dashboard() {
                                 </div>
                                 <button
                                   onClick={() => removeNote(n.id)}
-                                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all text-lg"
+                                  className="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-all text-lg ml-2"
                                 >
                                   x
                                 </button>
@@ -411,7 +439,7 @@ export default function Dashboard() {
                         </div>
                       )}
                     </div>
-                    <div className="p-4 border-t border-gray-200 bg-white">
+                    <div className="p-3 sm:p-4 border-t border-gray-200 bg-white">
                       <div className="flex gap-2 max-w-2xl mx-auto">
                         <input
                           type="text"
@@ -419,12 +447,12 @@ export default function Dashboard() {
                           onChange={(e) => setNoteInput(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && saveNote()}
                           placeholder={`Add a note${currentChapter ? ` for Chapter ${currentChapter.chapter_number}` : ""}...`}
-                          className="flex-1 px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                          className="flex-1 px-3 sm:px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-orange-400"
                         />
                         <button
                           onClick={saveNote}
                           disabled={!noteInput.trim()}
-                          className="px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
+                          className="px-4 sm:px-5 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors"
                         >
                           Save
                         </button>
@@ -435,34 +463,41 @@ export default function Dashboard() {
               </div>
             </>
           ) : (
-            <div className="flex-1 overflow-y-auto p-8 bg-gray-50">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-gray-50">
               <div className="max-w-5xl mx-auto">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                    <p className="text-3xl font-bold text-gray-900">{myBooks.length}</p>
+                <div className="flex items-center gap-3 mb-6 md:hidden">
+                  <button className="text-gray-500 hover:text-orange-500" onClick={() => setSidebarOpen(true)}>
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+                  </button>
+                  <h2 className="text-lg font-bold">Dashboard</h2>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-6 sm:mb-8">
+                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
+                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{myBooks.length}</p>
                     <p className="text-sm text-gray-500 mt-1">Books in Progress</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                    <p className="text-3xl font-bold text-gray-900">{progress.reduce((a, p) => a + (p.streak_days || 0), 0)}</p>
+                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
+                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{progress.reduce((a, p) => a + (p.streak_days || 0), 0)}</p>
                     <p className="text-sm text-gray-500 mt-1">Total Streak Days</p>
                   </div>
-                  <div className="bg-white border border-gray-200 rounded-2xl p-6">
-                    <p className="text-3xl font-bold text-gray-900">{books.length}</p>
+                  <div className="bg-white border border-gray-200 rounded-2xl p-4 sm:p-6">
+                    <p className="text-2xl sm:text-3xl font-bold text-gray-900">{books.length}</p>
                     <p className="text-sm text-gray-500 mt-1">Books in Library</p>
                   </div>
                 </div>
 
                 {myBooks.length > 0 && (
-                  <div className="mb-8">
+                  <div className="mb-6 sm:mb-8">
                     <h3 className="text-lg font-semibold text-gray-900 mb-4">Continue Reading</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
                       {myBooks.slice(0, 3).map((p) => (
                         <button
                           key={p.book_id}
                           onClick={() => openBook(p.book)}
-                          className="flex gap-4 p-4 bg-white border border-gray-200 rounded-xl hover:border-gray-400 transition-all text-left"
+                          className="flex gap-4 p-4 bg-white border border-gray-200 rounded-xl hover:border-orange-400 transition-all text-left"
                         >
-                          <img src={p.cover_url} alt="" className="w-16 h-24 rounded-lg object-cover" />
+                          <img src={p.cover_url} alt="" className="w-14 sm:w-16 h-20 sm:h-24 rounded-lg object-cover" />
                           <div className="min-w-0 flex-1">
                             <p className="font-semibold text-gray-900 truncate">{p.title}</p>
                             <p className="text-xs text-gray-500">{p.author}</p>
@@ -483,22 +518,18 @@ export default function Dashboard() {
                 )}
 
                 <h3 className="text-lg font-semibold text-gray-900 mb-4">Browse Library</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
                   {filteredBooks.map((b) => (
                     <button
                       key={b.id}
                       onClick={() => openBook(b)}
                       className="group text-left"
                     >
-                      <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 border border-gray-200 group-hover:border-gray-400 transition-all">
+                      <div className="aspect-[2/3] rounded-xl overflow-hidden mb-2 border border-gray-200 group-hover:border-orange-400 transition-all">
                         <img src={b.cover_url} alt={b.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
                       </div>
-                      <p className="font-medium text-sm text-gray-900 truncate group-hover:text-gray-600 transition-colors">{b.title}</p>
+                      <p className="font-medium text-xs sm:text-sm text-gray-900 truncate group-hover:text-orange-500 transition-colors">{b.title}</p>
                       <p className="text-xs text-gray-500 truncate">{b.author}</p>
-                      <div className="flex items-center gap-1 mt-1">
-                        <span className="text-xs text-gray-500">{b.rating}</span>
-                        <span className="text-xs text-gray-400 ml-1">{b.genre}</span>
-                      </div>
                     </button>
                   ))}
                 </div>
