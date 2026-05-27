@@ -6,10 +6,17 @@ BACKEND_PORT="${PORT:-3001}"
 
 echo "== ARN.IO: starting =="
 
+# Defaults must match backend expectations (see server/database.js)
+PG_HOST_DEFAULT="${PG_HOST:-localhost}"
+PG_PORT_DEFAULT="${PG_PORT:-5432}"
+PG_USER_DEFAULT="${PG_USER:-mukuvi}"
+PG_PASSWORD_DEFAULT="${PG_PASSWORD:-arnio2024}"
+PG_DATABASE_DEFAULT="${PG_DATABASE:-arnio}"
+
 echo "Checking PostgreSQL..."
 if command -v pg_isready >/dev/null 2>&1; then
-  if ! pg_isready -h "${PG_HOST:-localhost}" -p "${PG_PORT:-5432}" >/dev/null 2>&1; then
-    echo "PostgreSQL is not ready on ${PG_HOST:-localhost}:${PG_PORT:-5432}."
+  if ! pg_isready -h "$PG_HOST_DEFAULT" -p "$PG_PORT_DEFAULT" >/dev/null 2>&1; then
+    echo "PostgreSQL is not ready on ${PG_HOST_DEFAULT}:${PG_PORT_DEFAULT}."
     if command -v systemctl >/dev/null 2>&1; then
       echo "Attempting to start PostgreSQL (may ask for sudo password)..."
       sudo systemctl start postgresql || true
@@ -17,6 +24,33 @@ if command -v pg_isready >/dev/null 2>&1; then
   fi
 else
   echo "pg_isready not found; skipping DB readiness check."
+fi
+
+# Quick auth/db sanity check to fail fast with actionable instructions.
+if command -v psql >/dev/null 2>&1; then
+  if ! PGPASSWORD="$PG_PASSWORD_DEFAULT" psql -h "$PG_HOST_DEFAULT" -p "$PG_PORT_DEFAULT" -U "$PG_USER_DEFAULT" -d "$PG_DATABASE_DEFAULT" -tAc "SELECT 1" >/dev/null 2>&1; then
+    echo "PostgreSQL is running but backend DB auth failed (or database is missing)."
+    echo "Expected connection: postgresql://${PG_USER_DEFAULT}:***@${PG_HOST_DEFAULT}:${PG_PORT_DEFAULT}/${PG_DATABASE_DEFAULT}"
+    echo
+    echo "To create/reset the dev role + database (will ask for sudo password):"
+    echo "  sudo -u postgres psql -v ON_ERROR_STOP=1 <<'SQL'"
+    echo "  DO \$\$"
+    echo "  BEGIN"
+    echo "    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PG_USER_DEFAULT}') THEN"
+    echo "      CREATE ROLE ${PG_USER_DEFAULT} LOGIN PASSWORD '${PG_PASSWORD_DEFAULT}';"
+    echo "    ELSE"
+    echo "      ALTER ROLE ${PG_USER_DEFAULT} WITH LOGIN PASSWORD '${PG_PASSWORD_DEFAULT}';"
+    echo "    END IF;"
+    echo "  END"
+    echo "  \$\$;"
+    echo "  SQL"
+    echo "  sudo -u postgres createdb -O ${PG_USER_DEFAULT} ${PG_DATABASE_DEFAULT} 2>/dev/null || true"
+    echo
+    echo "Or set your own credentials via env vars: PG_USER, PG_PASSWORD, PG_DATABASE, PG_HOST, PG_PORT."
+    echo
+  fi
+else
+  echo "psql not found; skipping DB auth check."
 fi
 
 # Install deps if missing

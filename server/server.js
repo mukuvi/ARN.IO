@@ -12,16 +12,21 @@ import adminRoutes from "./routes/admin.js";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (
+        !origin ||
+        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
+      ) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "10mb" }));
 
 app.use("/api/auth", authRoutes);
@@ -33,7 +38,11 @@ app.use("/api/admin", adminRoutes);
 
 // Health check
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString(), version: "2.0.0-pg" });
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    version: "2.0.0-pg",
+  });
 });
 
 // Initialize database then start server
@@ -42,7 +51,17 @@ initDatabase()
     app.listen(PORT, () => {
       console.log(`✓ ARN.IO Backend running on http://localhost:${PORT}`);
       console.log(`  Database: PostgreSQL`);
-      console.log(`  AI: ${process.env.GEMINI_API_KEY ? "Gemini" : process.env.OPENAI_API_KEY ? "OpenAI" : "Built-in (set GEMINI_API_KEY or OPENAI_API_KEY for external AI)"}`);
+      console.log(
+        `  AI: ${
+          process.env.GROQ_API_KEY
+            ? "Groq"
+            : process.env.GEMINI_API_KEY
+              ? "Gemini"
+              : process.env.OPENAI_API_KEY
+                ? "OpenAI"
+                : "Built-in (set GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY for external AI)"
+        }`,
+      );
     });
   })
   .catch((err) => {
