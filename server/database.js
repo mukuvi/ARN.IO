@@ -2,11 +2,11 @@ import pg from "pg";
 import bcryptjs from "bcryptjs";
 
 const pool = new pg.Pool({
-  user: process.env.PG_USER || "mukuvi",
-  password: process.env.PG_PASSWORD || "arnio2024",
-  host: process.env.PG_HOST || "localhost",
-  port: parseInt(process.env.PG_PORT || "5432"),
-  database: process.env.PG_DATABASE || "arnio",
+  user: process.env.PG_USER,
+  password: process.env.PG_PASSWORD,
+  host: process.env.PG_HOST,
+  port: parseInt(process.env.PG_PORT),
+  database: process.env.PG_DATABASE,
 });
 
 export async function initDatabase() {
@@ -100,22 +100,64 @@ export async function initDatabase() {
     `);
 
     // Add columns if they don't exist (for existing databases)
-    try { await client.query("ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT NOW()"); } catch {}
-    try { await client.query("ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ"); } catch {}
-    try { await client.query("ALTER TABLE reading_sessions ADD COLUMN IF NOT EXISTS chapters_read INTEGER DEFAULT 0"); } catch {}
-    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted BOOLEAN DEFAULT false"); } catch {}
-    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ"); } catch {}
-    try { await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklist_reason TEXT DEFAULT ''"); } catch {}
-    try { await client.query("ALTER TABLE books ADD COLUMN IF NOT EXISTS full_text TEXT DEFAULT ''"); } catch {}
-    try { await client.query("ALTER TABLE books ADD COLUMN IF NOT EXISTS file_path TEXT DEFAULT ''"); } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ DEFAULT NOW()",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE reading_sessions ADD COLUMN IF NOT EXISTS chapters_read INTEGER DEFAULT 0",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted BOOLEAN DEFAULT false",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklisted_at TIMESTAMPTZ",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS blacklist_reason TEXT DEFAULT ''",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS full_text TEXT DEFAULT ''",
+      );
+    } catch {}
+    try {
+      await client.query(
+        "ALTER TABLE books ADD COLUMN IF NOT EXISTS file_path TEXT DEFAULT ''",
+      );
+    } catch {}
 
     // Seed admin only
-    const adminCheck = await client.query("SELECT id FROM users WHERE email = $1", ["mukuvi@arnio.com"]);
+    const adminCheck = await client.query(
+      "SELECT id FROM users WHERE email = $1",
+      ["mukuvi@arnio.com"],
+    );
     if (adminCheck.rows.length === 0) {
       const hashedPw = bcryptjs.hashSync("mukuvi", 10);
       await client.query(
         "INSERT INTO users (name, email, password, profile_pic, role, bio, last_login) VALUES ($1,$2,$3,$4,$5,$6,NOW())",
-        ["Mukuvi", "mukuvi@arnio.com", hashedPw, "https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&name=Mukuvi", "admin", "ARN.IO Platform Administrator"]
+        [
+          "Mukuvi",
+          "mukuvi@arnio.com",
+          hashedPw,
+          "https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&name=Mukuvi",
+          "admin",
+          "ARN.IO Platform Administrator",
+        ],
       );
       console.log("Admin account created: mukuvi@arnio.com");
     }
