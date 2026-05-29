@@ -46,4 +46,6 @@ client/.env.*
 .env.local
 uploads/
 docker-compose.yml.backup
+# PostgreSQL
+pg-data/
 # WARNING: Do not commit API keys, passwords, or sensitive files!
