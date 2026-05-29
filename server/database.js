@@ -7,6 +7,7 @@ const pool = new pg.Pool({
   host: process.env.PG_HOST,
   port: parseInt(process.env.PG_PORT),
   database: process.env.PG_DATABASE,
+  ssl: { rejectUnauthorized: false },
 });
 
 export async function initDatabase() {
