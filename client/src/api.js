@@ -1,4 +1,9 @@
-const API = "http://localhost:3001/api";
+const API = (import.meta.env.VITE_API_URL || "http://localhost:3001/api").replace(/\/+$/, "");
+
+const CONNECTION_ERROR =
+  "Unable to connect to ARN.IO. Check your connection and try again.";
+const SERVER_ERROR =
+  "ARN.IO is having trouble right now. Please try again in a moment.";
 
 function headers() {
   const h = { "Content-Type": "application/json" };
@@ -8,9 +13,28 @@ function headers() {
 }
 
 async function request(path, options = {}) {
-  const res = await fetch(`${API}${path}`, { ...options, headers: headers() });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Request failed");
+  let res;
+  try {
+    res = await fetch(`${API}${path}`, { ...options, headers: headers() });
+  } catch {
+    throw new Error(CONNECTION_ERROR);
+  }
+
+  const text = await res.text();
+  let data = {};
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = {};
+    }
+  }
+
+  if (!res.ok) {
+    if (res.status >= 500) throw new Error(SERVER_ERROR);
+    throw new Error(data.error || "Something went wrong. Please try again.");
+  }
+
   return data;
 }
 
@@ -37,18 +61,82 @@ export const getBookFileUrl = (bookId) => {
 };
 export async function getBookFile(bookId) {
   const token = localStorage.getItem("arn_token");
-  const res = await fetch(`${API}/books/${bookId}/file`, {
-    headers: { "Authorization": `Bearer ${token}` }
-  });
-  if (!res.ok) throw new Error("File not available");
+  let res;
+  try {
+    res = await fetch(`${API}/books/${bookId}/file`, {
+      headers: { "Authorization": `Bearer ${token}` }
+    });
+  } catch {
+    throw new Error("The book file could not be loaded. Check your connection and try again.");
+  }
+  if (!res.ok) throw new Error("The book file is not available right now.");
   const blob = await res.blob();
   return { url: URL.createObjectURL(blob), type: blob.type };
 }
 export const searchBooks = (query) => request(`/books/search/${encodeURIComponent(query)}`);
 export const deleteBook = (bookId) => request(`/books/${bookId}`, { method: "DELETE" });
 export const searchBooksOnline = (query) => request(`/books/search-online/${encodeURIComponent(query)}`);
+async function createUpload(file) {
+  let res;
+  try {
+    res = await fetch(`${API}/books/upload-url`, {
+      method: "POST",
+      headers: headers(),
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type,
+        size: file.size,
+      }),
+    });
+  } catch {
+    throw new Error(CONNECTION_ERROR);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 503) return null;
+  if (!res.ok) throw new Error(data.error || "The upload could not be started. Try again.");
+  return data;
+}
+
 export async function uploadDocument({ title, author, genre, content, file }) {
   const token = localStorage.getItem("arn_token");
+
+  if (file) {
+    const upload = await createUpload(file);
+    if (upload) {
+      let put;
+      try {
+        put = await fetch(upload.uploadUrl, {
+          method: "PUT",
+          headers: {
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+      } catch {
+        throw new Error(
+          "The file could not be uploaded. Check your connection and try again.",
+        );
+      }
+      if (!put.ok) {
+        throw new Error("The file could not be uploaded. Please try again.");
+      }
+
+      return request("/books/upload", {
+        method: "POST",
+        body: JSON.stringify({
+          title,
+          author,
+          genre,
+          content: content && !content.startsWith("[") ? content : undefined,
+          objectKey: upload.key,
+          originalName: file.name,
+          contentType: file.type,
+          size: file.size,
+        }),
+      });
+    }
+  }
+
   const h = {};
   if (token) h["Authorization"] = `Bearer ${token}`;
 
@@ -65,9 +153,17 @@ export async function uploadDocument({ title, author, genre, content, file }) {
     body = JSON.stringify({ title, author, genre, content });
   }
 
-  const res = await fetch(`${API}/books/upload`, { method: "POST", headers: h, body });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Upload failed");
+  let res;
+  try {
+    res = await fetch(`${API}/books/upload`, { method: "POST", headers: h, body });
+  } catch {
+    throw new Error(CONNECTION_ERROR);
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status >= 500) throw new Error(SERVER_ERROR);
+    throw new Error(data.error || "The document could not be uploaded. Please try again.");
+  }
   return data;
 }
 

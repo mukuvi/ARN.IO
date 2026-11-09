@@ -82,7 +82,7 @@ async function calculateStreak(userId) {
   return { current: currentStreak, longest: longestStreak, totalDays: dates.length };
 }
 
-// Update or create progress — tracks real daily streaks
+// Update or create progress - tracks real daily streaks
 router.put("/:bookId", authenticateToken, async (req, res) => {
   try {
     const { currentChapter, progressPercent } = req.body;

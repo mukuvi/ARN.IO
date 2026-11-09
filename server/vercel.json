@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "server.js": {
+      "maxDuration": 300
+    }
+  }
+}

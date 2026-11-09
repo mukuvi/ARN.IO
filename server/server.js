@@ -1,70 +1,34 @@
-import "dotenv/config";
-import express from "express";
-import cors from "cors";
+import app from "./app.js";
 import { initDatabase } from "./database.js";
-import authRoutes from "./routes/auth.js";
-import bookRoutes from "./routes/books.js";
-import progressRoutes from "./routes/progress.js";
-import notesRoutes from "./routes/notes.js";
-import aiRoutes from "./routes/ai.js";
-import adminRoutes from "./routes/admin.js";
 
-const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (
-        !origin ||
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)
-      ) {
-        callback(null, true);
-      } else {
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-  }),
-);
-app.use(express.json({ limit: "10mb" }));
-
-app.use("/api/auth", authRoutes);
-app.use("/api/books", bookRoutes);
-app.use("/api/progress", progressRoutes);
-app.use("/api/notes", notesRoutes);
-app.use("/api/ai", aiRoutes);
-app.use("/api/admin", adminRoutes);
-
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    version: "2.0.0-pg",
-  });
-});
-
-// Initialize database then start server
-initDatabase()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`✓ ARN.IO Backend running on http://localhost:${PORT}`);
-      console.log(`  Database: PostgreSQL`);
-      console.log(
-        `  AI: ${
-          process.env.GROQ_API_KEY
-            ? "Groq"
-            : process.env.GEMINI_API_KEY
-              ? "Gemini"
-              : process.env.OPENAI_API_KEY
-                ? "OpenAI"
-                : "Built-in (set GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY for external AI)"
-        }`,
-      );
+if (!process.env.VERCEL) {
+  initDatabase()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`ARN.IO Backend running on http://localhost:${PORT}`);
+        console.log(`  Database: ${process.env.DATABASE_URL ? "DATABASE_URL" : "PG_*"}`);
+        console.log(
+          `  Storage: ${process.env.S3_BUCKET || process.env.R2_BUCKET ? "object storage" : "local disk"}`,
+        );
+        console.log(
+          `  AI: ${
+            process.env.GROQ_API_KEY
+              ? "Groq"
+              : process.env.GEMINI_API_KEY
+                ? "Gemini"
+                : process.env.OPENAI_API_KEY
+                  ? "OpenAI"
+                  : "Built-in (set GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY for external AI)"
+          }`,
+        );
+      });
+    })
+    .catch((err) => {
+      console.error("Failed to initialize database:", err);
+      process.exit(1);
     });
-  })
-  .catch((err) => {
-    console.error("Failed to initialize database:", err);
-    process.exit(1);
-  });
+}
+
+export default app;

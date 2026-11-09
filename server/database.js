@@ -1,14 +1,26 @@
 import pg from "pg";
 import bcryptjs from "bcryptjs";
+import dns from "node:dns";
 
-const pool = new pg.Pool({
-  user: process.env.PG_USER,
-  password: process.env.PG_PASSWORD,
-  host: process.env.PG_HOST,
-  port: parseInt(process.env.PG_PORT),
-  database: process.env.PG_DATABASE,
-  ssl: { rejectUnauthorized: false },
-});
+dns.setDefaultResultOrder("ipv4first");
+
+const pool = process.env.DATABASE_URL
+  ? new pg.Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: { rejectUnauthorized: false },
+      max: Number(process.env.PG_POOL_MAX || (process.env.VERCEL ? 3 : 10)),
+      idleTimeoutMillis: 30_000,
+      connectionTimeoutMillis: 10_000,
+    })
+  : new pg.Pool({
+      user: process.env.PG_USER,
+      password: process.env.PG_PASSWORD,
+      host: process.env.PG_HOST,
+      port: parseInt(process.env.PG_PORT),
+      database: process.env.PG_DATABASE,
+      ssl: { rejectUnauthorized: false },
+      max: Number(process.env.PG_POOL_MAX || 10),
+    });
 
 export async function initDatabase() {
   const client = await pool.connect();
@@ -142,25 +154,31 @@ export async function initDatabase() {
       );
     } catch {}
 
-    // Seed admin only
+    const adminEmail = process.env.ADMIN_EMAIL || "mukuvi@arnio.com";
+    const adminPassword = process.env.ADMIN_PASSWORD || "mukuvi";
     const adminCheck = await client.query(
       "SELECT id FROM users WHERE email = $1",
-      ["mukuvi@arnio.com"],
+      [adminEmail],
     );
     if (adminCheck.rows.length === 0) {
-      const hashedPw = bcryptjs.hashSync("mukuvi", 10);
+      if (!process.env.ADMIN_EMAIL || !process.env.ADMIN_PASSWORD) {
+        console.warn(
+          "ADMIN_EMAIL/ADMIN_PASSWORD not set; seeding the local default admin.",
+        );
+      }
+      const hashedPw = bcryptjs.hashSync(adminPassword, 10);
       await client.query(
         "INSERT INTO users (name, email, password, profile_pic, role, bio, last_login) VALUES ($1,$2,$3,$4,$5,$6,NOW())",
         [
-          "Mukuvi",
-          "mukuvi@arnio.com",
+          process.env.ADMIN_NAME || "Mukuvi",
+          adminEmail,
           hashedPw,
           "https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&name=Mukuvi",
           "admin",
           "ARN.IO Platform Administrator",
         ],
       );
-      console.log("Admin account created: mukuvi@arnio.com");
+      console.log(`Admin account created: ${adminEmail}`);
     }
 
     console.log("Database initialized");

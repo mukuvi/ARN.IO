@@ -9,7 +9,7 @@ summarize chapters, explain concepts, answer questions about literature, and pro
 Be concise, helpful, and engaging. When discussing a specific book, reference its actual content, themes, characters, and plot points accurately.
 Format your responses with markdown for readability.`;
 
-// Call Groq API (free, OpenAI-compatible — uses Llama 3)
+// Call Groq API (free, OpenAI-compatible - uses Llama 3)
 async function callAI(message, bookContext, chatHistory) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) throw new Error("GROQ_API_KEY not configured. Get a free key at https://console.groq.com/keys and set it in server/.env");
@@ -108,7 +108,7 @@ router.post("/chat", authenticateToken, async (req, res) => {
         }
       }
     } else {
-      // General chat — provide user's library context for recommendations
+      // General chat - provide user's library context for recommendations
       const userBooks = (await pool.query(`
         SELECT b.title, b.author, b.genre, rp.progress_percent 
         FROM reading_progress rp JOIN books b ON b.id = rp.book_id 

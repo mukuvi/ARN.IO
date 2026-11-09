@@ -8,11 +8,11 @@ const router = express.Router();
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
-    if (!name || !email || !password) return res.status(400).json({ error: "All fields required" });
+    if (!name || !email || !password) return res.status(400).json({ error: "Please fill in your name, email, and password." });
     if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
 
     const existing = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
-    if (existing.rows.length > 0) return res.status(409).json({ error: "Email already registered" });
+    if (existing.rows.length > 0) return res.status(409).json({ error: "An account with this email already exists. Sign in instead." });
 
     const hashed = await bcrypt.hash(password, 10);
     const picUrl = `https://ui-avatars.com/api/?background=f97316&color=fff&bold=true&name=${encodeURIComponent(name)}`;
@@ -25,14 +25,14 @@ router.post("/register", async (req, res) => {
     res.status(201).json({ message: "Account created", token: generateToken(user), user: { id: user.id, name: user.name, email: user.email, profilePic: user.profile_pic, role: user.role, bio: user.bio, lastLogin: user.last_login } });
   } catch (e) {
     console.error("Register:", e);
-    res.status(500).json({ error: "Registration failed" });
+    res.status(500).json({ error: "Your account could not be created. Please try again." });
   }
 });
 
 router.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ error: "Email and password required" });
+    if (!email || !password) return res.status(400).json({ error: "Enter your email and password to sign in." });
 
     const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
     const user = result.rows[0];
@@ -46,7 +46,7 @@ router.post("/login", async (req, res) => {
     res.json({ message: "Login successful", token: generateToken(user), user: { id: user.id, name: user.name, email: user.email, profilePic: user.profile_pic, role: user.role, bio: user.bio, lastLogin: new Date().toISOString() } });
   } catch (e) {
     console.error("Login:", e);
-    res.status(500).json({ error: "Login failed" });
+    res.status(500).json({ error: "Sign in is unavailable right now. Please try again." });
   }
 });
 

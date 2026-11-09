@@ -2,18 +2,28 @@ import express from "express";
 import { createRequire } from "module";
 import fs from "fs";
 import path from "path";
+import { randomUUID } from "crypto";
 import { fileURLToPath } from "url";
 import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
 import multer from "multer";
 import mammoth from "mammoth";
+import {
+  storageConfigured,
+  createUploadUrl,
+  getObjectStream,
+  putObject,
+  deleteObject,
+} from "../storage.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const UPLOADS_DIR = path.join(__dirname, "..", "uploads");
+const IS_SERVERLESS = Boolean(process.env.VERCEL);
 
-// Ensure uploads directory exists
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!IS_SERVERLESS && !fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 const require = createRequire(import.meta.url);
 const pdfParse = require("pdf-parse");
@@ -22,6 +32,96 @@ const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+const ALLOWED_EXTENSIONS = new Set([
+  "pdf",
+  "docx",
+  "doc",
+  "txt",
+  "md",
+  "html",
+  "rtf",
+  "odt",
+]);
+
+function extensionOf(name, fallback = "") {
+  const ext = (name || "").split(".").pop()?.toLowerCase();
+  return ALLOWED_EXTENSIONS.has(ext) ? ext : fallback;
+}
+
+function isR2Key(filePath) {
+  return typeof filePath === "string" && filePath.startsWith("uploads/");
+}
+
+async function extractTextFromBuffer(buffer, ext, mime = "") {
+  if (ext === "pdf" || mime === "application/pdf") {
+    const result = await pdfParse(buffer);
+    return result.text;
+  }
+
+  if (
+    ext === "docx" ||
+    mime ===
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+  ) {
+    const result = await mammoth.extractRawText({ buffer });
+    return result.value;
+  }
+
+  if (ext === "doc" || mime === "application/msword") {
+    try {
+      const result = await mammoth.extractRawText({ buffer });
+      return result.value;
+    } catch {
+      return buffer.toString("utf-8").replace(/[^\x20-\x7E\n\r\t]/g, " ");
+    }
+  }
+
+  if (ext === "rtf" || mime === "application/rtf") {
+    return buffer
+      .toString("utf-8")
+      .replace(/\{\\[^{}]*\}/g, "")
+      .replace(/\\[a-z]+\d*\s?/gi, "")
+      .replace(/[{}]/g, "")
+      .trim();
+  }
+
+  return buffer.toString("utf-8");
+}
+
+router.post("/upload-url", authenticateToken, async (req, res) => {
+  try {
+    if (!storageConfigured) {
+      return res
+        .status(503)
+        .json({ error: "Object storage is not configured", storage: "local" });
+    }
+
+    const { filename, contentType, size } = req.body || {};
+    const ext = extensionOf(filename);
+    if (!filename || !ext) {
+      return res.status(400).json({
+        error: "Unsupported file type. Use PDF, DOCX, DOC, TXT, MD, HTML, RTF or ODT.",
+      });
+    }
+    if (Number(size) > 50 * 1024 * 1024) {
+      return res.status(413).json({ error: "File is larger than 50 MB" });
+    }
+
+    const key = `uploads/${req.user.id}/${randomUUID()}.${ext}`;
+    const uploadUrl = await createUploadUrl(
+      key,
+      contentType || "application/octet-stream",
+    );
+
+    res.json({ uploadUrl, key, expiresIn: 600 });
+  } catch (e) {
+    console.error("Create upload URL:", e);
+    res
+      .status(e.status || 500)
+      .json({ error: e.message || "Failed to prepare upload" });
+  }
 });
 
 // Get all books (user's own uploads + admin-uploaded books for everyone)
@@ -121,6 +221,20 @@ router.get("/:id/file", authenticateToken, async (req, res) => {
     if (!book || !book.file_path)
       return res.status(404).json({ error: "Original file not available" });
 
+    if (isR2Key(book.file_path)) {
+      const object = await getObjectStream(book.file_path);
+      res.setHeader(
+        "Content-Type",
+        object.ContentType || "application/octet-stream",
+      );
+      res.setHeader("Content-Disposition", "inline");
+      if (object.ContentLength) {
+        res.setHeader("Content-Length", object.ContentLength);
+      }
+      object.Body.pipe(res);
+      return;
+    }
+
     const filePath = path.join(UPLOADS_DIR, book.file_path);
     if (!fs.existsSync(filePath))
       return res.status(404).json({ error: "File not found on disk" });
@@ -147,7 +261,7 @@ router.get("/:id/file", authenticateToken, async (req, res) => {
   }
 });
 
-// Search books (local — user's own + admin-uploaded)
+// Search books (local, user's own and admin-uploaded)
 router.get("/search/:query", authenticateToken, async (req, res) => {
   try {
     const q = `%${req.params.query}%`;
@@ -319,7 +433,7 @@ async function detectAuthor(text, title) {
             {
               role: "system",
               content:
-                "You detect book authors. Respond with ONLY the author's name — nothing else. If you cannot determine the author, respond with exactly: Unknown",
+                "You detect book authors. Respond with ONLY the author's name - nothing else. If you cannot determine the author, respond with exactly: Unknown",
             },
             {
               role: "user",
@@ -350,7 +464,7 @@ async function summarizeIntoChapters(text, title, author) {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) {
     // Fallback: simple grouping if no API key
-    console.warn("No GROQ_API_KEY — using basic chapter grouping");
+    console.warn("No GROQ_API_KEY - using basic chapter grouping");
     return basicChapterGrouping(text);
   }
 
@@ -366,7 +480,7 @@ Book: "${title}" by ${author || "Unknown"}
 Total words: ~${wordCount}
 
 INSTRUCTIONS:
-- SKIP any table of contents, index, bibliography, acknowledgments, copyright notices, or front/back matter — do NOT summarize those
+- SKIP any table of contents, index, bibliography, acknowledgments, copyright notices, or front/back matter - do NOT summarize those
 - Focus ONLY on the actual substantive content: the core ideas, arguments, narrative sections, and meaningful information
 - Divide that real content into ${chapterCount} logical chapters based on topic flow, themes, or narrative structure
 - For each chapter, provide a clear title and a detailed summary (200-400 words)
@@ -473,65 +587,76 @@ function basicChapterGrouping(text) {
     : [{ title: "Full Text", content: text.trim() }];
 }
 
-// User uploads their own document (supports .txt, .md, .html, .pdf, .docx, .doc, .rtf, .odt)
 router.post(
   "/upload",
   authenticateToken,
   upload.single("file"),
   async (req, res) => {
     try {
-      let { title, author, genre, content } = req.body;
+      let {
+        title,
+        author,
+        genre,
+        content,
+        objectKey,
+        originalName,
+        contentType,
+      } = req.body || {};
       const file = req.file;
+      let buffer = file?.buffer || null;
+      let storedKey = null;
 
-      // Extract text from uploaded file if present
-      if (file) {
-        const ext = file.originalname.split(".").pop().toLowerCase();
-        const mime = file.mimetype || "";
-
-        if (ext === "pdf" || mime === "application/pdf") {
-          const result = await pdfParse(file.buffer);
-          content = result.text;
-        } else if (
-          ext === "docx" ||
-          mime ===
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      if (objectKey) {
+        if (
+          !isR2Key(objectKey) ||
+          !objectKey.startsWith(`uploads/${req.user.id}/`)
         ) {
-          const result = await mammoth.extractRawText({ buffer: file.buffer });
-          content = result.value;
-        } else if (ext === "doc" || mime === "application/msword") {
-          // .doc (legacy Word) — mammoth can sometimes handle it, fall back to raw text
-          try {
-            const result = await mammoth.extractRawText({
-              buffer: file.buffer,
-            });
-            content = result.value;
-          } catch {
-            content = file.buffer
-              .toString("utf-8")
-              .replace(/[^\x20-\x7E\n\r\t]/g, " ");
-          }
-        } else if (ext === "rtf" || mime === "application/rtf") {
-          // Strip RTF control words for a basic plain-text extraction
-          content = file.buffer
-            .toString("utf-8")
-            .replace(/\{\\[^{}]*\}/g, "")
-            .replace(/\\[a-z]+\d*\s?/gi, "")
-            .replace(/[{}]/g, "")
-            .trim();
-        } else {
-          // Plain text formats: .txt, .md, .html, .odt (raw), etc.
-          content = file.buffer.toString("utf-8");
+          return res.status(403).json({ error: "Invalid upload key" });
+        }
+        if (!storageConfigured) {
+          return res
+            .status(503)
+            .json({ error: "Object storage is not configured" });
         }
 
-        if (!title) title = file.originalname.replace(/\.[^.]+$/, "");
+        const object = await getObjectStream(objectKey);
+        const chunks = [];
+        for await (const chunk of object.Body) chunks.push(chunk);
+        buffer = Buffer.concat(chunks);
+        storedKey = objectKey;
+        if (!originalName) originalName = objectKey.split("/").pop();
+        if (!contentType && object.ContentType) {
+          contentType = object.ContentType;
+        }
       }
 
-      if (!title || !content)
+      if (!originalName && file) originalName = file.originalname;
+
+      if (buffer) {
+        const ext = extensionOf(originalName, extensionOf(objectKey));
+        content = await extractTextFromBuffer(
+          buffer,
+          ext,
+          contentType || file?.mimetype || "",
+        );
+      }
+
+      if (!title && originalName) {
+        title = originalName.replace(/\.[^.]+$/, "");
+      }
+
+      if (!title || !content || !String(content).trim()) {
         return res
           .status(400)
           .json({ error: "Title and content are required" });
+      }
 
-      // If no author provided, use AI to detect the author from the book text
+      if (IS_SERVERLESS && !storageConfigured) {
+        return res
+          .status(503)
+          .json({ error: "Object storage is not configured" });
+      }
+
       if (
         !author ||
         author.trim() === "" ||
@@ -541,7 +666,6 @@ router.post(
         if (detectedAuthor) author = detectedAuthor;
       }
 
-      // Strip HTML tags if content looks like HTML
       if (/<[^>]+>/.test(content)) {
         content = content
           .replace(/<br\s*\/?>/gi, "\n")
@@ -550,16 +674,13 @@ router.post(
           .trim();
       }
 
-      // Clean up whitespace
       content = content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
-      // Estimate page count (~250 words per page)
       const wordCount = content.split(/\s+/).length;
       const estimatedPages = Math.max(1, Math.round(wordCount / 250));
 
       const coverUrl = await findBookCover(title, author);
 
-      // Store the book with full text
       const result = await pool.query(
         "INSERT INTO books (title, author, genre, cover_url, description, pages, published_year, rating, uploaded_by, full_text) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id",
         [
@@ -578,18 +699,27 @@ router.post(
 
       const bookId = result.rows[0].id;
 
-      // Save original file to disk for in-browser viewing
-      if (file) {
-        const ext = file.originalname.split(".").pop().toLowerCase();
-        const fileName = `${bookId}.${ext}`;
-        fs.writeFileSync(path.join(UPLOADS_DIR, fileName), file.buffer);
+      if (buffer) {
+        const ext = extensionOf(originalName, extensionOf(objectKey));
+        if (!storedKey && storageConfigured) {
+          storedKey = `uploads/${req.user.id}/${randomUUID()}.${ext}`;
+          await putObject(
+            storedKey,
+            buffer,
+            contentType || file?.mimetype || "application/octet-stream",
+          );
+        }
+        if (!storedKey) {
+          const fileName = `${bookId}.${ext}`;
+          fs.writeFileSync(path.join(UPLOADS_DIR, fileName), buffer);
+          storedKey = fileName;
+        }
         await pool.query("UPDATE books SET file_path=$1 WHERE id=$2", [
-          fileName,
+          storedKey,
           bookId,
         ]);
       }
 
-      // Use AI to summarize into chapters
       const chapters = await summarizeIntoChapters(content, title, author);
 
       for (let i = 0; i < chapters.length; i++) {
@@ -599,19 +729,16 @@ router.post(
         );
       }
 
-      // Auto-add to reading progress
       await pool.query(
         "INSERT INTO reading_progress (user_id, book_id, current_chapter, progress_percent, streak_days) VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING",
         [req.user.id, bookId, 1, 0, 0],
       );
 
-      res
-        .status(201)
-        .json({
-          message: "Document uploaded",
-          bookId,
-          chaptersCreated: chapters.length,
-        });
+      res.status(201).json({
+        message: "Document uploaded",
+        bookId,
+        chaptersCreated: chapters.length,
+      });
     } catch (e) {
       console.error("Upload document:", e);
       res.status(500).json({ error: "Upload failed" });
@@ -634,12 +761,14 @@ router.delete("/:id", authenticateToken, async (req, res) => {
         .status(403)
         .json({ error: "You can only delete your own books" });
 
-    // Delete file from disk
     if (book.file_path) {
-      const filePath = path.join(UPLOADS_DIR, book.file_path);
-      try {
-        fs.unlinkSync(filePath);
-      } catch {}
+      if (isR2Key(book.file_path)) {
+        await deleteObject(book.file_path);
+      } else {
+        try {
+          fs.unlinkSync(path.join(UPLOADS_DIR, book.file_path));
+        } catch {}
+      }
     }
 
     // Delete related data

@@ -222,13 +222,18 @@ export default function Dashboard() {
     const ext = file.name.split(".").pop().toLowerCase();
     const binaryTypes = ["pdf", "docx", "doc", "odt"];
     if (binaryTypes.includes(ext)) {
-      // Binary files — send as file, server will extract text
       setUploadData(prev => ({ ...prev, file, content: `[${ext.toUpperCase()} file loaded]`, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
     } else {
-      // Text-based files — read client-side
       const reader = new FileReader();
       reader.onload = () => {
-        setUploadData(prev => ({ ...prev, file: null, content: reader.result, title: prev.title || file.name.replace(/\.[^.]+$/, "") }));
+        const text = String(reader.result || "");
+        const isLarge = new Blob([text]).size > 3 * 1024 * 1024;
+        setUploadData(prev => ({
+          ...prev,
+          file: isLarge ? file : null,
+          content: isLarge ? "" : text,
+          title: prev.title || file.name.replace(/\.[^.]+$/, ""),
+        }));
       };
       reader.readAsText(file);
     }
