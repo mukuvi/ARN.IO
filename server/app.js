@@ -7,6 +7,7 @@ import progressRoutes from "./routes/progress.js";
 import notesRoutes from "./routes/notes.js";
 import aiRoutes from "./routes/ai.js";
 import adminRoutes from "./routes/admin.js";
+import { cleanupExpiredUploads } from "./cleanup.js";
 
 const app = express();
 
@@ -59,5 +60,20 @@ const health = (_req, res) => {
 
 app.get("/api/health", health);
 app.get("/health", health);
+
+app.get("/api/cron/cleanup", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  try {
+    const result = await cleanupExpiredUploads();
+    return res.json(result);
+  } catch (error) {
+    console.error("Cleanup failed:", error);
+    return res.status(500).json({ error: "Cleanup failed" });
+  }
+});
 
 export default app;

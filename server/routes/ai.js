@@ -12,7 +12,7 @@ Format your responses with markdown for readability.`;
 // Call Groq API (free, OpenAI-compatible - uses Llama 3)
 async function callAI(message, bookContext, chatHistory) {
   const apiKey = process.env.GROQ_API_KEY;
-  if (!apiKey) throw new Error("GROQ_API_KEY not configured. Get a free key at https://console.groq.com/keys and set it in server/.env");
+  if (!apiKey) return null;
 
   const messages = [];
 
@@ -80,6 +80,62 @@ async function callAI(message, bookContext, chatHistory) {
   throw lastError;
 }
 
+function localReply(message, bookContext) {
+  const text = String(message || "").toLowerCase();
+
+  if (!bookContext) {
+    if (text.includes("recommend") || text.includes("suggest")) {
+      return "Add a few books to your library and I can suggest titles based on the genres you read. You can also open a book and ask about its chapters, summary or themes.";
+    }
+    return "I can help with the book you are reading. Open a book and ask about its summary, chapters, author or themes.";
+  }
+
+  const title = bookContext.title || "this book";
+  const author = bookContext.author || "Unknown";
+  const chapters = bookContext.allChapters || [];
+
+  if (text.includes("author") || text.includes("who wrote")) {
+    return `${title} is listed with ${author} as the author.`;
+  }
+
+  if (text.includes("chapter") || text.includes("contents")) {
+    if (chapters.length === 0) {
+      return `No chapter list is available for ${title} yet.`;
+    }
+    const list = chapters
+      .map((chapter) => `Chapter ${chapter.chapter_number}: ${chapter.title}`)
+      .join("\n");
+    return `${title} has ${chapters.length} chapters:\n\n${list}`;
+  }
+
+  if (
+    text.includes("summary") ||
+    text.includes("about") ||
+    text.includes("theme") ||
+    text.includes("what is this book")
+  ) {
+    const description =
+      bookContext.description || "No description is available for this book.";
+    const list =
+      chapters.length > 0
+        ? `\n\nChapters:\n${chapters
+            .slice(0, 8)
+            .map((chapter) => `Chapter ${chapter.chapter_number}: ${chapter.title}`)
+            .join("\n")}`
+        : "";
+    return `${description}${list}`;
+  }
+
+  if (bookContext.chapterContent) {
+    const excerpt = bookContext.chapterContent
+      .replace(/\s+/g, " ")
+      .slice(0, 500);
+    return `You are reading Chapter ${bookContext.chapterNumber}: ${bookContext.chapterTitle}. Here is the opening text:\n\n${excerpt}...`;
+  }
+
+  return `I can help with ${title} by ${author}. Ask about its summary, chapters, author or themes.`;
+}
+
 // Chat with AI about a book
 router.post("/chat", authenticateToken, async (req, res) => {
   try {
@@ -140,26 +196,28 @@ router.post("/chat", authenticateToken, async (req, res) => {
 
     // Call DeepSeek AI
     let reply;
+    let source = "builtin";
+
     try {
-      reply = await callAI(message, bookContext, history);
+      const aiReply = await callAI(message, bookContext, history);
+      if (aiReply) {
+        reply = aiReply;
+        source = "groq";
+      }
     } catch (aiErr) {
       console.error("AI error:", aiErr.message);
-      if (aiErr.message.includes("QUOTA_EXCEEDED")) {
-        reply = "⏳ The AI service is temporarily rate-limited. Please wait a moment and try again.";
-      } else if (aiErr.message.includes("API_KEY_INVALID") || aiErr.message.includes("not configured")) {
-        reply = "🔑 The AI API key is not configured or invalid. Please set a valid GROQ_API_KEY in the server's .env file. Get a free key at https://console.groq.com/keys";
-      } else {
-        reply = `Sorry, I couldn't process that right now. Please try again shortly. (${aiErr.message})`;
-      }
     }
 
-    // Save AI response
+    if (!reply) {
+      reply = localReply(message, bookContext);
+    }
+
     await pool.query(
       "INSERT INTO ai_chats (user_id, book_id, role, message) VALUES ($1,$2,$3,$4)",
       [req.user.id, bookId || null, "assistant", reply]
     );
 
-    res.json({ reply, source: "groq" });
+    res.json({ reply, source });
   } catch (e) {
     console.error("AI chat:", e);
     res.status(500).json({ error: "AI chat failed" });
