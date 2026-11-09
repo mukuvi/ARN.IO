@@ -226,7 +226,7 @@ router.put("/ai-settings", authenticateToken, async (req, res) => {
   try {
     const { provider, baseUrl, model, apiKey } = req.body || {};
     const existing = await pool.query(
-      "SELECT api_key_encrypted FROM user_ai_settings WHERE user_id=$1",
+      "SELECT provider, api_key_encrypted FROM user_ai_settings WHERE user_id=$1",
       [req.user.id],
     );
 
@@ -235,6 +235,16 @@ router.put("/ai-settings", authenticateToken, async (req, res) => {
     }
 
     const config = await resolveAiConfig({ provider, baseUrl, model });
+
+    if (
+      !apiKey &&
+      existing.rows[0] &&
+      existing.rows[0].provider !== config.provider
+    ) {
+      return res
+        .status(400)
+        .json({ error: "Enter a new API key when changing providers." });
+    }
     const encrypted = apiKey
       ? encryptSecret(String(apiKey).trim())
       : existing.rows[0].api_key_encrypted;
