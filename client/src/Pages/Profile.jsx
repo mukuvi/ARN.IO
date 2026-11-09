@@ -3,6 +3,16 @@ import { useNavigate } from "react-router-dom";
 import Header from "../Components/Header";
 import * as api from "../api";
 
+const AI_PRESETS = {
+  groq: { label: "Groq", baseUrl: "https://api.groq.com/openai/v1", model: "llama-3.3-70b-versatile" },
+  openai: { label: "OpenAI", baseUrl: "https://api.openai.com/v1", model: "gpt-4o-mini" },
+  openrouter: { label: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", model: "openai/gpt-4o-mini" },
+  deepseek: { label: "DeepSeek", baseUrl: "https://api.deepseek.com/v1", model: "deepseek-chat" },
+  gemini: { label: "Google Gemini", baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-2.5-flash" },
+  mistral: { label: "Mistral", baseUrl: "https://api.mistral.ai/v1", model: "mistral-small-latest" },
+  custom: { label: "Custom OpenAI compatible", baseUrl: "", model: "" },
+};
+
 export default function Profile() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -25,12 +35,21 @@ export default function Profile() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
+  const [aiSettings, setAiSettings] = useState(null);
+  const [aiProvider, setAiProvider] = useState("groq");
+  const [aiModel, setAiModel] = useState(AI_PRESETS.groq.model);
+  const [aiBaseUrl, setAiBaseUrl] = useState(AI_PRESETS.groq.baseUrl);
+  const [aiKey, setAiKey] = useState("");
+  const [aiMsg, setAiMsg] = useState("");
+  const [aiSaving, setAiSaving] = useState(false);
+
   const [tab, setTab] = useState("profile");
 
   useEffect(() => {
     const token = localStorage.getItem("arn_token");
     if (!token) { navigate("/login"); return; }
     loadProfile();
+    loadAiSettings();
   }, []);
 
   async function loadProfile() {
@@ -45,6 +64,20 @@ export default function Profile() {
       setUser(JSON.parse(localStorage.getItem("arn_user")));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadAiSettings() {
+    try {
+      const res = await api.getAiSettings();
+      if (res.settings) {
+        setAiSettings(res.settings);
+        setAiProvider(res.settings.provider);
+        setAiModel(res.settings.model);
+        setAiBaseUrl(res.settings.baseUrl);
+      }
+    } catch {
+      setAiSettings(null);
     }
   }
 
@@ -116,6 +149,50 @@ export default function Profile() {
     }
   }
 
+  function handleAiProviderChange(value) {
+    setAiProvider(value);
+    const preset = AI_PRESETS[value];
+    if (preset) {
+      setAiModel(preset.model);
+      setAiBaseUrl(preset.baseUrl);
+    }
+  }
+
+  async function saveAiSettings() {
+    setAiSaving(true);
+    setAiMsg("");
+    try {
+      const res = await api.saveAiSettings({
+        provider: aiProvider,
+        model: aiModel,
+        baseUrl: aiBaseUrl,
+        apiKey: aiKey,
+      });
+      setAiSettings(res.settings);
+      setAiKey("");
+      setAiMsg(res.message || "AI settings saved");
+    } catch (e) {
+      setAiMsg(e.message);
+    } finally {
+      setAiSaving(false);
+    }
+  }
+
+  async function removeAiSettings() {
+    setAiSaving(true);
+    setAiMsg("");
+    try {
+      await api.deleteAiSettings();
+      setAiSettings(null);
+      setAiKey("");
+      setAiMsg("AI settings removed");
+    } catch (e) {
+      setAiMsg(e.message);
+    } finally {
+      setAiSaving(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -183,7 +260,7 @@ export default function Profile() {
         )}
 
         <div className="flex gap-1 mb-4 bg-white border border-gray-200 rounded-xl p-1">
-          {[["profile", "Edit Profile"], ["password", "Password"], ["danger", "Account"]].map(([key, label]) => (
+          {[["profile", "Edit Profile"], ["ai", "AI"], ["password", "Password"], ["danger", "Account"]].map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)}
               className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${tab === key ? "bg-orange-500 text-white" : "text-gray-500 hover:text-gray-700"}`}
             >{label}</button>
@@ -224,6 +301,64 @@ export default function Profile() {
                 className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors">
                 {saving ? "Saving..." : "Save Changes"}
               </button>
+            </div>
+          </div>
+        )}
+
+        {tab === "ai" && (
+          <div className="bg-white border border-gray-200 rounded-xl p-4 sm:p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">AI Assistant</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Add your own API key from any OpenAI compatible provider. Without a key, the built-in assistant answers basic questions.
+            </p>
+            {aiMsg && <div className={`mb-4 px-4 py-2 rounded-lg text-sm ${aiMsg.includes("saved") || aiMsg.includes("removed") ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`}>{aiMsg}</div>}
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Provider</label>
+                <select value={aiProvider} onChange={(e) => handleAiProviderChange(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400">
+                  {Object.entries(AI_PRESETS).map(([key, preset]) => (
+                    <option key={key} value={key}>{preset.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">Model</label>
+                <input type="text" value={aiModel} onChange={(e) => setAiModel(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+                  placeholder="Model name" />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">API base URL</label>
+                <input type="text" value={aiBaseUrl} onChange={(e) => setAiBaseUrl(e.target.value)} disabled={aiProvider !== "custom"}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400 disabled:text-gray-400"
+                  placeholder="https://api.example.com/v1" />
+                <p className="text-xs text-gray-400 mt-1">{aiProvider === "custom" ? "Use an OpenAI compatible endpoint." : "Set automatically for the selected provider."}</p>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-600 mb-1">API key</label>
+                <input type="password" value={aiKey} onChange={(e) => setAiKey(e.target.value)} autoComplete="off"
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 focus:outline-none focus:border-orange-400 focus:ring-1 focus:ring-orange-400"
+                  placeholder={aiSettings?.hasKey ? "Leave blank to keep the saved key" : "Paste your API key"} />
+                <p className="text-xs text-gray-400 mt-1">Stored encrypted. The key is never returned to the browser.</p>
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button onClick={saveAiSettings} disabled={aiSaving || (!aiKey && !aiSettings?.hasKey)}
+                  className="px-6 py-3 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl font-medium text-sm transition-colors">
+                  {aiSaving ? "Saving..." : "Save AI Settings"}
+                </button>
+                {aiSettings?.hasKey && (
+                  <button onClick={removeAiSettings} disabled={aiSaving}
+                    className="px-6 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-medium text-sm transition-colors">
+                    Remove Key
+                  </button>
+                )}
+              </div>
+              {aiSettings?.hasKey && (
+                <p className="text-sm text-green-600">
+                  A key is saved for {AI_PRESETS[aiSettings.provider]?.label || aiSettings.provider}. The assistant uses it first.
+                </p>
+              )}
             </div>
           </div>
         )}

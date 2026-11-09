@@ -2,6 +2,8 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import pool from "../database.js";
 import { generateToken, authenticateToken } from "../middleware/auth.js";
+import { encryptSecret } from "../crypto.js";
+import { resolveAiConfig } from "../aiProviders.js";
 
 const router = express.Router();
 
@@ -192,6 +194,91 @@ router.get("/stats", authenticateToken, async (req, res) => {
   } catch (e) {
     console.error("Stats:", e);
     res.status(500).json({ error: "Failed to get stats" });
+  }
+});
+
+router.get("/ai-settings", authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query(
+      "SELECT provider, base_url, model, updated_at FROM user_ai_settings WHERE user_id=$1",
+      [req.user.id],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      return res.json({ settings: null });
+    }
+    return res.json({
+      settings: {
+        provider: row.provider,
+        baseUrl: row.base_url,
+        model: row.model,
+        hasKey: true,
+        updatedAt: row.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Get AI settings:", error);
+    return res.status(500).json({ error: "Failed to load AI settings" });
+  }
+});
+
+router.put("/ai-settings", authenticateToken, async (req, res) => {
+  try {
+    const { provider, baseUrl, model, apiKey } = req.body || {};
+    const existing = await pool.query(
+      "SELECT api_key_encrypted FROM user_ai_settings WHERE user_id=$1",
+      [req.user.id],
+    );
+
+    if (!apiKey && !existing.rows[0]) {
+      return res.status(400).json({ error: "Enter an API key." });
+    }
+
+    const config = await resolveAiConfig({ provider, baseUrl, model });
+    const encrypted = apiKey
+      ? encryptSecret(String(apiKey).trim())
+      : existing.rows[0].api_key_encrypted;
+
+    const saved = await pool.query(
+      `INSERT INTO user_ai_settings (user_id, provider, base_url, model, api_key_encrypted)
+       VALUES ($1,$2,$3,$4,$5)
+       ON CONFLICT (user_id) DO UPDATE SET
+         provider=EXCLUDED.provider,
+         base_url=EXCLUDED.base_url,
+         model=EXCLUDED.model,
+         api_key_encrypted=EXCLUDED.api_key_encrypted,
+         updated_at=NOW()
+       RETURNING provider, base_url, model, updated_at`,
+      [req.user.id, config.provider, config.baseUrl, config.model, encrypted],
+    );
+
+    return res.json({
+      message: "AI settings saved",
+      settings: {
+        provider: saved.rows[0].provider,
+        baseUrl: saved.rows[0].base_url,
+        model: saved.rows[0].model,
+        hasKey: true,
+        updatedAt: saved.rows[0].updated_at,
+      },
+    });
+  } catch (error) {
+    console.error("Save AI settings:", error);
+    return res
+      .status(error.status || 500)
+      .json({ error: error.status ? error.message : "Failed to save AI settings" });
+  }
+});
+
+router.delete("/ai-settings", authenticateToken, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM user_ai_settings WHERE user_id=$1", [
+      req.user.id,
+    ]);
+    return res.json({ message: "AI settings removed" });
+  } catch (error) {
+    console.error("Delete AI settings:", error);
+    return res.status(500).json({ error: "Failed to remove AI settings" });
   }
 });
 

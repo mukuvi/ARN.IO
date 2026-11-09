@@ -1,6 +1,7 @@
 import express from "express";
 import pool from "../database.js";
 import { authenticateToken } from "../middleware/auth.js";
+import { decryptSecret } from "../crypto.js";
 
 const router = express.Router();
 
@@ -10,8 +11,18 @@ Be concise, helpful, and engaging. When discussing a specific book, reference it
 Format your responses with markdown for readability.`;
 
 // Call Groq API (free, OpenAI-compatible - uses Llama 3)
-async function callAI(message, bookContext, chatHistory) {
-  const apiKey = process.env.GROQ_API_KEY;
+async function callAI(message, bookContext, chatHistory, config = null) {
+  const provider = config?.provider || "groq";
+  const apiKey = config?.apiKey || process.env.GROQ_API_KEY;
+  const baseUrl =
+    config?.baseUrl ||
+    process.env.AI_BASE_URL ||
+    "https://api.groq.com/openai/v1";
+  const model =
+    config?.model ||
+    process.env.AI_MODEL ||
+    process.env.GROQ_MODEL ||
+    "llama-3.3-70b-versatile";
   if (!apiKey) return null;
 
   const messages = [];
@@ -44,14 +55,22 @@ async function callAI(message, bookContext, chatHistory) {
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const headers = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
+    if (provider === "openrouter") {
+      headers["HTTP-Referer"] = process.env.APP_ORIGIN || "https://arnio.mukuvi.tech";
+      headers["X-Title"] = "ARN.IO";
+    }
+
+    const response = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${apiKey}`,
-      },
+      headers,
+      redirect: "error",
+      signal: AbortSignal.timeout(60000),
       body: JSON.stringify({
-        model: "llama-3.3-70b-versatile",
+        model,
         messages,
         temperature: 0.7,
         max_tokens: 2048,
@@ -197,15 +216,42 @@ router.post("/chat", authenticateToken, async (req, res) => {
     // Call DeepSeek AI
     let reply;
     let source = "builtin";
+    let userConfig = null;
 
-    try {
-      const aiReply = await callAI(message, bookContext, history);
-      if (aiReply) {
-        reply = aiReply;
-        source = "groq";
+    const savedSettings = await pool.query(
+      "SELECT provider, base_url, model, api_key_encrypted FROM user_ai_settings WHERE user_id=$1",
+      [req.user.id],
+    );
+
+    if (savedSettings.rows[0]) {
+      try {
+        userConfig = {
+          provider: savedSettings.rows[0].provider,
+          baseUrl: savedSettings.rows[0].base_url,
+          model: savedSettings.rows[0].model,
+          apiKey: decryptSecret(savedSettings.rows[0].api_key_encrypted),
+        };
+      } catch (keyError) {
+        console.error("AI key decrypt failed:", keyError.message);
       }
-    } catch (aiErr) {
-      console.error("AI error:", aiErr.message);
+    }
+
+    if (userConfig) {
+      try {
+        reply = await callAI(message, bookContext, history, userConfig);
+        if (reply) source = "user";
+      } catch (aiErr) {
+        console.error("User AI error:", aiErr.message);
+      }
+    }
+
+    if (!reply) {
+      try {
+        reply = await callAI(message, bookContext, history);
+        if (reply) source = "groq";
+      } catch (aiErr) {
+        console.error("AI error:", aiErr.message);
+      }
     }
 
     if (!reply) {

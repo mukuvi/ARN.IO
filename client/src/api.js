@@ -50,6 +50,11 @@ export const changePassword = (currentPassword, newPassword) =>
 export const deleteAccount = (password) =>
   request("/auth/account", { method: "DELETE", body: JSON.stringify({ password }) });
 export const getStats = () => request("/auth/stats");
+export const getAiSettings = () => request("/auth/ai-settings");
+export const saveAiSettings = (data) =>
+  request("/auth/ai-settings", { method: "PUT", body: JSON.stringify(data) });
+export const deleteAiSettings = () =>
+  request("/auth/ai-settings", { method: "DELETE" });
 
 export const getBooks = () => request("/books");
 export const getBook = (id) => request(`/books/${id}`);

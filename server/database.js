@@ -38,6 +38,16 @@ export async function initDatabase() {
         last_login TIMESTAMPTZ
       );
 
+      CREATE TABLE IF NOT EXISTS user_ai_settings (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        base_url TEXT NOT NULL,
+        model TEXT NOT NULL,
+        api_key_encrypted TEXT NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      );
+
       CREATE TABLE IF NOT EXISTS books (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
